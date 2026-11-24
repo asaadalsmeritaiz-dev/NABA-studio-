@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  naba-studio:
+    build: .
+    container_name: naba-ai-video-studio
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_PATH=/app/data/naba_studio.sqlite
+      - STORAGE_DIR=/app/storage
+    volumes:
+      - studio_data:/app/data
+      - studio_storage:/app/storage
+    restart: unless-stopped
+
+  # Optional production scale services (activate via `docker compose --profile scale up`)
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["scale"]
+    environment:
+      POSTGRES_DB: naba_video_studio
+      POSTGRES_USER: naba
+      POSTGRES_PASSWORD: change_me_in_production
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["scale"]
+    ports:
+      - "6379:6379"
+
+volumes:
+  studio_data:
+  studio_storage:
+  postgres_data:

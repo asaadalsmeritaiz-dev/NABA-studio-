@@ -1,0 +1,8 @@
+{
+  "name": "Naba AI Video Studio",
+  "description": "Arabic-first AI educational video production studio for Naba Academy featuring structured script generation, neural narration, deterministic smartboard & code rendering, timeline editing, and FFmpeg MP4 export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

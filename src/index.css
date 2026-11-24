@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+:root {
+  /* Premium Dark Burgundy Design Tokens */
+  --bg-plum: #180e15;
+  --burgundy-primary: #3b0d1e;
+  --maroon-rich: #581629;
+  --wine-red: #78263f;
+  --berry-muted: #9e4761;
+  --gold-champagne: #c49a6c;
+
+  /* Surfaces */
+  --surface-elevated: #27131f;
+  --surface-secondary: #341a29;
+  --border-subtle: #654354;
+
+  /* Typography */
+  --text-primary: #f9f1f4;
+  --text-secondary: #c8b7c0;
+
+  /* Semantic Status */
+  --status-success: #49b894;
+  --status-warning: #e7b66a;
+  --status-error: #f07883;
+}
+
+@layer base {
+  html {
+    background-color: var(--bg-plum);
+    color: var(--text-primary);
+    scroll-behavior: smooth;
+  }
+
+  html[lang="ar"] {
+    font-family: "Cairo", "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  }
+
+  html[lang="en"] {
+    font-family: "Plus Jakarta Sans", "Cairo", system-ui, -apple-system, sans-serif;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  /* Accessible keyboard focus ring in Champagne Gold */
+  :focus-visible {
+    outline: 2px solid var(--gold-champagne);
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Burgundy custom scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #180e15;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #581629;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #78263f;
+}
+
+/* Respect user reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

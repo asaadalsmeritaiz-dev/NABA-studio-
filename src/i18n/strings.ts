@@ -1,0 +1,338 @@
+import type { StudioLocale } from '../types/studio.ts';
+
+export const UI_STRINGS = {
+  ar: {
+    brandName: 'أستوديو نبأ',
+    brandSub: 'إنتاج الفيديو التعليمي',
+    navHome: 'الرئيسية',
+    navMyVideos: 'فيديوهاتي',
+    navCreate: 'إنشاء فيديو',
+    navLibrary: 'المكتبة',
+    navSettings: 'الإعدادات',
+    navSignOut: 'تسجيل الخروج',
+    switchLang: 'English',
+
+    // Home Page
+    homeHeadline: 'حوّل أفكارك إلى فيديوهات تعليمية احترافية',
+    homeSubheadline: 'اكتب موضوع الدرس أو أرفق ملفًا، ودع نبأ يساعدك في إنتاج الفيديو.',
+    homeInputPlaceholder: 'مثال: مقدمة في المتغيرات بلغة C++، أو قوانين نيوتن للحركة...',
+    homeCreateCta: 'إنشاء الفيديو',
+    homeAttachDoc: 'إرفاق ملف (PDF, DOCX, PPTX, TXT)',
+    homeContinueEditing: 'متابعة التحرير',
+    homeRecentProjects: 'مشاريعك الأخيرة',
+    homeViewAll: 'عرض الكل',
+    homeEmptyTitle: 'ابدأ أول درس تعليمي لك',
+    homeEmptyDesc: 'اكتب عنوان الدرس في الأعلى وسيقوم الأستوديو بتجهيز السيناريو والمشاهد والفيديو لك.',
+    homeQuickExamples: 'أفكار سريعة:',
+
+    // 3-Step Creation Wizard
+    wizardTitle: 'إنشاء فيديو تعليمي',
+    step1Title: 'المحتوى',
+    step2Title: 'نمط الفيديو',
+    step3Title: 'التوليد والتصدير',
+    stepBack: 'السابق',
+    stepNext: 'التالي',
+
+    contentTabTopic: 'موضوع الدرس',
+    contentTabPaste: 'لصق سيناريو جاهز',
+    contentTabUpload: 'رفع ملف تعليمي',
+    lessonTopicLabel: 'موضوع الدرس',
+    lessonTopicPlaceholder: 'اكتب موضوع الدرس أو عنوان المحاضرة...',
+    subjectLabel: 'المادة الدراسية',
+    languageLabel: 'لغة الفيديو',
+    levelLabel: 'المستوى التعليمي',
+    pasteScriptLabel: 'نص السيناريو الكامل',
+    pasteScriptPlaceholder: 'الصق نص الدرس هنا... افصل بين كل مشهد وآخر بسطر فارغ أو بـ ---',
+    uploadDropTitle: 'اختر ملفًا تعليميًا (PDF, DOCX, PPTX, TXT)',
+    uploadDropSub: 'سيقوم الأستوديو باستخراج المحتوى تلقائيًا وبناء السيناريو منه.',
+    generateScriptBtn: 'توليد السيناريو بالذكاء الاصطناعي',
+    applyScriptBtn: 'اعتماد النص وتقسيم المشاهد',
+    generatingScript: 'جاري صياغة السيناريو التعليمي...',
+    scriptReadyTitle: 'مراجعة السيناريو والمشاهد',
+    scriptReadySub: 'يمكنك تعديل نص أي مشهد مباشرة قبل الانتقال لاختيار نمط الفيديو.',
+    addSceneQuick: 'إضافة مشهد',
+
+    styleLecturerTitle: 'اختر المحاضر الافتراضي',
+    styleClassroomTitle: 'اختر بيئة القاعة',
+    styleVoiceTitle: 'اختر الصوت',
+    styleDurationTitle: 'مدة الفيديو التقريبية',
+    styleAspectTitle: 'أبعاد الفيديو',
+    aspect169: 'أفقي 16:9 (يوتيوب ومنصات التعليم)',
+    aspect916: 'عمودي 9:16 (شورتس وريلز)',
+    previewVoiceBtn: 'معاينة الصوت',
+    advancedSettingsToggle: 'إعدادات متقدمة',
+    resolutionLabel: 'الدقة',
+    modeLabel: 'وضع التشغيل',
+    modeLocal: 'محلي مجاني',
+    modeHybrid: 'هجين (صوت سحابي)',
+    modeCloud: 'سحابي متقدم',
+    paidVideoToggle: 'السماح بمولد فيديو محاضر مدفوع عند التوفر',
+
+    genSummaryTitle: 'ملخص الفيديو قبل الإنتاج',
+    genStartBtn: 'إنتاج الفيديو الآن',
+    genCancelBtn: 'إلغاء الإنتاج',
+    genRetryBtn: 'إعادة المحاولة',
+    genInProgress: 'جاري إنتاج الفيديو...',
+    genCompletedTitle: 'الفيديو جاهز للمعاينة والتحميل',
+    genDownloadMp4: 'تحميل MP4',
+    genDownloadSrt: 'تحميل الترجمة SRT',
+    genOpenEditor: 'فتح في المحرر',
+
+    // My Videos & Export Center
+    myVideosTitle: 'فيديوهاتي',
+    myVideosSubtitle: 'جميع مشاريعك الدروسية والفيديوهات المُصدّرة في مكان واحد.',
+    tabProjects: 'المشاريع',
+    tabExports: 'ملفات التصدير',
+    searchPlaceholder: 'ابحث عن درس أو مادة...',
+    actionEdit: 'تحرير',
+    actionPreview: 'معاينة',
+    actionDownload: 'تحميل',
+    actionRename: 'إعادة تسمية',
+    actionDelete: 'حذف',
+    confirmDeleteProject: 'حذف هذا المشروع؟',
+    confirmDeleteYes: 'تأكيد الحذف',
+    confirmCancel: 'إلغاء',
+    noProjectsYet: 'لا توجد مشاريع بعد',
+    noExportsYet: 'لم يتم تصدير أي فيديو بعد',
+    noExportsHint: 'أنشئ فيديو أو افتح مشروعًا واضغط على تصدير لإنتاج ملف MP4 قابل للتحميل.',
+    publishSectionTitle: 'النشر إلى أكاديمية نبأ',
+    publishBtn: 'تجهيز / إرسال للأكاديمية',
+    courseIdLabel: 'رمز المقرر',
+    lessonIdLabel: 'رمز الدرس',
+
+    // Video Editor
+    editorBack: 'العودة إلى فيديوهاتي',
+    editorScenes: 'المشاهد',
+    editorEditScript: 'تعديل النص',
+    editorRegenerateScene: 'تحديث صوت المشهد',
+    editorExport: 'تصدير الفيديو',
+    editorSaveScene: 'حفظ المشهد',
+    editorAutosaved: 'تم الحفظ تلقائيًا',
+    editorSaving: 'جاري الحفظ...',
+    editorTimeline: 'الخط الزمني',
+    editorAdvancedTools: 'أدوات المشهد المتقدمة (كود، معادلات، وسائط)',
+    editorValidateCode: 'فحص صحة الكود',
+    editorDialogueLabel: 'نص التعليق الصوتي',
+    editorSubtitleLabel: 'الترجمة المعروضة',
+    editorSceneTitleLabel: 'عنوان المشهد',
+    editorDurationLabel: 'المدة (ثانية)',
+    editorBulletsLabel: 'نقاط السبورة (سطر لكل نقطة)',
+    editorCodeLabel: 'مثال برمجي',
+    editorEquationLabel: 'معادلة رياضية / فيزيائية',
+    editorPreviewStage: 'معاينة السبورة',
+    editorPreviewVideo: 'معاينة الفيديو',
+    editorPreviewAudio: 'تشغيل صوت المشهد',
+
+    // Library
+    libraryTitle: 'المكتبة',
+    librarySubtitle: 'اختر المحاضرين والأصوات وبيئات القاعات لدروسك.',
+    libraryLecturers: 'المحاضرون',
+    libraryVoices: 'الأصوات',
+    libraryClassrooms: 'القاعات',
+    uploadLecturerBtn: 'إضافة محاضر مخصص',
+    uploadLecturerTitle: 'رفع صورة محاضر بموافقة موثّقة',
+    consentRequiredLabel: 'أقر بامتلاك الموافقة الصريحة لاستخدام صورة هذا المحاضر في الفيديوهات التعليمية.',
+    consentNotePlaceholder: 'مرجع الموافقة (مثال: موافقة خطية من المحاضر رقم 2026-01)',
+    preferredDefault: 'الافتراضي المختار',
+    setPreferred: 'تعيين كافتراضي',
+    speakingSpeed: 'سرعة التحدث',
+
+    // Settings Modal
+    settingsTitle: 'الإعدادات والنظام',
+    settingsLanguage: 'لغة الواجهة',
+    settingsCapabilities: 'قدرات النظام والمزودين (شفافية تقنية)',
+    settingsAccount: 'حسابك',
+    close: 'إغلاق',
+
+    // Status labels (clean text, zero pills)
+    statusDraft: 'مسودة',
+    statusScriptDraft: 'سيناريو جاهز',
+    statusScriptApproved: 'سيناريو معتمد',
+    statusExported: 'تم التصدير',
+    scenesUnit: 'مشاهد',
+    secondsUnit: 'ث',
+    minutesUnit: 'د',
+  },
+  en: {
+    brandName: 'Naba Studio',
+    brandSub: 'Educational Video Production',
+    navHome: 'Home',
+    navMyVideos: 'My Videos',
+    navCreate: 'Create Video',
+    navLibrary: 'Library',
+    navSettings: 'Settings',
+    navSignOut: 'Sign Out',
+    switchLang: 'العربية',
+
+    // Home Page
+    homeHeadline: 'Turn your ideas into professional educational videos',
+    homeSubheadline: 'Write a lesson topic or attach a file, and let Naba help you produce the video.',
+    homeInputPlaceholder: 'e.g., Introduction to Variables in C++, or Newton Laws of Motion...',
+    homeCreateCta: 'Create Video',
+    homeAttachDoc: 'Attach document (PDF, DOCX, PPTX, TXT)',
+    homeContinueEditing: 'Continue Editing',
+    homeRecentProjects: 'Recent Projects',
+    homeViewAll: 'View All',
+    homeEmptyTitle: 'Create your first educational video',
+    homeEmptyDesc: 'Enter a lesson topic above and Naba Studio will help build the script, scenes, and MP4.',
+    homeQuickExamples: 'Quick ideas:',
+
+    // 3-Step Creation Wizard
+    wizardTitle: 'Create Educational Video',
+    step1Title: 'Content',
+    step2Title: 'Video Style',
+    step3Title: 'Generation',
+    stepBack: 'Back',
+    stepNext: 'Continue',
+
+    contentTabTopic: 'Lesson Topic',
+    contentTabPaste: 'Paste Complete Script',
+    contentTabUpload: 'Upload Document',
+    lessonTopicLabel: 'Lesson Topic',
+    lessonTopicPlaceholder: 'Enter the lesson topic or lecture title...',
+    subjectLabel: 'Subject',
+    languageLabel: 'Video Language',
+    levelLabel: 'Educational Level',
+    pasteScriptLabel: 'Complete Script',
+    pasteScriptPlaceholder: 'Paste your full script here... separate scenes with a blank line or ---',
+    uploadDropTitle: 'Choose an educational file (PDF, DOCX, PPTX, TXT)',
+    uploadDropSub: 'Naba Studio extracts the text and builds a structured lesson script.',
+    generateScriptBtn: 'Generate Script with AI',
+    applyScriptBtn: 'Apply Script & Split Scenes',
+    generatingScript: 'Drafting educational script...',
+    scriptReadyTitle: 'Review & Edit Script',
+    scriptReadySub: 'Edit any scene text before choosing your video style.',
+    addSceneQuick: 'Add Scene',
+
+    styleLecturerTitle: 'Virtual Lecturer',
+    styleClassroomTitle: 'Classroom Environment',
+    styleVoiceTitle: 'Voice Profile',
+    styleDurationTitle: 'Target Duration',
+    styleAspectTitle: 'Aspect Ratio',
+    aspect169: '16:9 Landscape (Courses & YouTube)',
+    aspect916: '9:16 Vertical (Shorts & Reels)',
+    previewVoiceBtn: 'Preview Voice',
+    advancedSettingsToggle: 'Advanced Settings',
+    resolutionLabel: 'Resolution',
+    modeLabel: 'Execution Mode',
+    modeLocal: 'Free Local',
+    modeHybrid: 'Hybrid (Cloud Voice)',
+    modeCloud: 'Cloud Extended',
+    paidVideoToggle: 'Allow paid AI lecturer video provider when configured',
+
+    genSummaryTitle: 'Video Summary',
+    genStartBtn: 'Generate Video',
+    genCancelBtn: 'Cancel Generation',
+    genRetryBtn: 'Retry',
+    genInProgress: 'Generating your video...',
+    genCompletedTitle: 'Your video is ready',
+    genDownloadMp4: 'Download MP4',
+    genDownloadSrt: 'Download Subtitles (SRT)',
+    genOpenEditor: 'Open in Editor',
+
+    // My Videos & Export Center
+    myVideosTitle: 'My Videos',
+    myVideosSubtitle: 'Manage your lesson projects and exported MP4 videos.',
+    tabProjects: 'Projects',
+    tabExports: 'Exports',
+    searchPlaceholder: 'Search lessons or subjects...',
+    actionEdit: 'Edit',
+    actionPreview: 'Preview',
+    actionDownload: 'Download',
+    actionRename: 'Rename',
+    actionDelete: 'Delete',
+    confirmDeleteProject: 'Delete this project?',
+    confirmDeleteYes: 'Delete',
+    confirmCancel: 'Cancel',
+    noProjectsYet: 'No projects yet',
+    noExportsYet: 'No exported videos yet',
+    noExportsHint: 'Create a video or open a project and export it to produce a downloadable MP4.',
+    publishSectionTitle: 'Publish to Naba Academy',
+    publishBtn: 'Prepare / Send to Academy',
+    courseIdLabel: 'Course ID',
+    lessonIdLabel: 'Lesson ID',
+
+    // Video Editor
+    editorBack: 'Back to My Videos',
+    editorScenes: 'Scenes',
+    editorEditScript: 'Edit Script',
+    editorRegenerateScene: 'Regenerate Audio',
+    editorExport: 'Export Video',
+    editorSaveScene: 'Save Scene',
+    editorAutosaved: 'Autosaved',
+    editorSaving: 'Saving...',
+    editorTimeline: 'Timeline',
+    editorAdvancedTools: 'Advanced Scene Tools (Code, Equations, Media)',
+    editorValidateCode: 'Check Code',
+    editorDialogueLabel: 'Spoken Narration',
+    editorSubtitleLabel: 'Subtitle Caption',
+    editorSceneTitleLabel: 'Scene Title',
+    editorDurationLabel: 'Duration (sec)',
+    editorBulletsLabel: 'Smartboard Points (one per line)',
+    editorCodeLabel: 'Code Snippet',
+    editorEquationLabel: 'Equation',
+    editorPreviewStage: 'Smartboard',
+    editorPreviewVideo: 'Video Preview',
+    editorPreviewAudio: 'Play Scene Audio',
+
+    // Library
+    libraryTitle: 'Library',
+    librarySubtitle: 'Browse virtual lecturers, voices, and classroom environments.',
+    libraryLecturers: 'Lecturers',
+    libraryVoices: 'Voices',
+    libraryClassrooms: 'Classrooms',
+    uploadLecturerBtn: 'Add Custom Lecturer',
+    uploadLecturerTitle: 'Upload Consent-Verified Lecturer Portrait',
+    consentRequiredLabel: 'I confirm explicit written authorization to use this likeness in educational videos.',
+    consentNotePlaceholder: 'Authorization reference (e.g. Written consent #2026-01)',
+    preferredDefault: 'Default Selected',
+    setPreferred: 'Set as Default',
+    speakingSpeed: 'Speaking Speed',
+
+    // Settings Modal
+    settingsTitle: 'Settings & System',
+    settingsLanguage: 'Interface Language',
+    settingsCapabilities: 'System Capabilities & Provider Disclosure',
+    settingsAccount: 'Account',
+    close: 'Close',
+
+    // Status labels
+    statusDraft: 'Draft',
+    statusScriptDraft: 'Script Draft',
+    statusScriptApproved: 'Script Approved',
+    statusExported: 'Exported',
+    scenesUnit: 'scenes',
+    secondsUnit: 's',
+    minutesUnit: 'm',
+  },
+} as const;
+
+export type StudioStrings = (typeof UI_STRINGS)[StudioLocale];
+
+export function t(locale: StudioLocale): StudioStrings {
+  return UI_STRINGS[locale];
+}
+
+export function formatStatusLabel(status: string, locale: StudioLocale): string {
+  const s = UI_STRINGS[locale];
+  switch (status) {
+    case 'exported':
+      return s.statusExported;
+    case 'script_approved':
+      return s.statusScriptApproved;
+    case 'script_draft':
+      return s.statusScriptDraft;
+    default:
+      return s.statusDraft;
+  }
+}
+
+export function formatRelativeDate(isoDate: string, locale: StudioLocale): string {
+  const d = new Date(isoDate.includes('T') ? isoDate : `${isoDate.replace(' ', 'T')}Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return new Intl.DateTimeFormat(locale === 'ar' ? 'ar-SA' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(d);
+}
