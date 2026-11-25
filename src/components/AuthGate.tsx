@@ -154,15 +154,17 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
           <form onSubmit={handleSubmit} className="space-y-4">
             {(mode === 'claim' || mode === 'register') && (
               <div>
-                <label className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
+                <label htmlFor="auth-name" className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
                   {isAr ? 'الاسم الكامل' : 'Full Name'}
                 </label>
                 <input
+                  id="auth-name"
                   type="text"
                   required
                   minLength={2}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
                   className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-4 py-3 text-sm text-[#F9F1F4] placeholder-[#C8B7C0]/50 focus:border-[#C49A6C] focus:outline-none"
                 />
               </div>
@@ -170,10 +172,11 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
 
             {mode === 'claim' && (
               <div>
-                <label className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
+                <label htmlFor="auth-claim-code" className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
                   {isAr ? 'رمز إعداد مساحة العمل' : 'Workspace Setup Code'}
                 </label>
                 <input
+                  id="auth-claim-code"
                   type="password"
                   required
                   minLength={16}
@@ -188,31 +191,35 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
 
             {mode !== 'claim' && (
               <div>
-                <label className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
+                <label htmlFor="auth-email" className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
                   {isAr ? 'البريد الإلكتروني' : 'Email Address'}
                 </label>
                 <input
+                  id="auth-email"
                   type="email"
                   required
                   dir="ltr"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
                   className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-4 py-3 text-sm text-[#F9F1F4] placeholder-[#C8B7C0]/50 focus:border-[#C49A6C] focus:outline-none"
                 />
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
+              <label htmlFor="auth-password" className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
                 {isAr ? 'كلمة المرور' : 'Password'}
               </label>
               <div className="relative">
                 <input
+                  id="auth-password"
                   type="password"
                   required
                   minLength={mode === 'login' ? 4 : 8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   placeholder={mode === 'login' ? '••••••••' : isAr ? '8 أحرف على الأقل' : 'Minimum 8 characters'}
                   className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-4 py-3 text-sm text-[#F9F1F4] placeholder-[#C8B7C0]/50 focus:border-[#C49A6C] focus:outline-none"
                 />
@@ -221,7 +228,7 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
             </div>
 
             {error && (
-              <div className="rounded-xl border border-[#F07883]/40 bg-[#F07883]/10 px-4 py-3 text-xs text-[#F07883]">
+              <div role="alert" className="rounded-xl border border-[#F07883]/40 bg-[#F07883]/10 px-4 py-3 text-xs text-[#F07883]">
                 {error}
               </div>
             )}

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Plus, ShieldCheck, Upload, Volume2, X } from 'lucide-react';
 import type {
   ClassroomEnvironment,
@@ -61,6 +61,48 @@ export function LecturersLibrary({
   const [reviewReferences, setReviewReferences] = useState<Record<string, string>>({});
   const [reviewingLecturerId, setReviewingLecturerId] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!uploadOpen) return;
+
+    const previouslyFocused = document.activeElement;
+    const dialog = document.querySelector<HTMLElement>('[aria-labelledby="lecturer-upload-title"]');
+    const focusable = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    focusable()[0]?.focus();
+
+    function handleDialogKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setUploadOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const elements = focusable();
+      const first = elements[0];
+      const last = elements.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleDialogKeydown);
+    return () => {
+      document.removeEventListener('keydown', handleDialogKeydown);
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+    };
+  }, [uploadOpen]);
 
   async function handlePreviewVoice(v: VoiceProfile) {
     setPreviewingVoiceId(v.id);
@@ -447,13 +489,14 @@ export function LecturersLibrary({
           className="fixed inset-0 z-50 bg-[#180E15]/85 backdrop-blur-sm flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
+          aria-labelledby="lecturer-upload-title"
         >
           <form
             onSubmit={handleUploadLecturer}
             className="w-full max-w-lg rounded-2xl border border-[#654354] bg-[#27131F] p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-[#F9F1F4] flex items-center gap-2">
+              <h2 id="lecturer-upload-title" className="text-base font-bold text-[#F9F1F4] flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-[#C49A6C]" />
                 {s.uploadLecturerTitle}
               </h2>
@@ -467,12 +510,15 @@ export function LecturersLibrary({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#C8B7C0] mb-1">
+              <label htmlFor="lecturer-name" className="block text-xs font-semibold text-[#C8B7C0] mb-1">
                 {isAr ? 'اسم المحاضر' : 'Lecturer Name'}
               </label>
               <input
+                id="lecturer-name"
                 type="text"
                 required
+                autoFocus
+                autoComplete="off"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-3.5 py-2.5 text-sm text-[#F9F1F4]"
@@ -480,10 +526,11 @@ export function LecturersLibrary({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#C8B7C0] mb-1">
+              <label htmlFor="lecturer-specialty" className="block text-xs font-semibold text-[#C8B7C0] mb-1">
                 {isAr ? 'التخصص' : 'Specialty'}
               </label>
               <input
+                id="lecturer-specialty"
                 type="text"
                 value={specialty}
                 onChange={(e) => setSpecialty(e.target.value)}
@@ -492,10 +539,11 @@ export function LecturersLibrary({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#C8B7C0] mb-1">
+              <label htmlFor="lecturer-image" className="block text-xs font-semibold text-[#C8B7C0] mb-1">
                 {isAr ? 'صورة المحاضر (JPG/PNG/WEBP)' : 'Portrait Image (JPG/PNG/WEBP)'}
               </label>
               <input
+                id="lecturer-image"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 required
@@ -514,15 +562,21 @@ export function LecturersLibrary({
               <span>{s.consentRequiredLabel}</span>
             </label>
 
-            <input
-              type="text"
-              required
-              minLength={6}
-              value={consentNote}
-              onChange={(e) => setConsentNote(e.target.value)}
-              placeholder={s.consentNotePlaceholder}
-              className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-3.5 py-2.5 text-xs text-[#F9F1F4] placeholder-[#C8B7C0]/50"
-            />
+            <div>
+              <label htmlFor="lecturer-consent-reference" className="sr-only">
+                {s.consentNotePlaceholder}
+              </label>
+              <input
+                id="lecturer-consent-reference"
+                type="text"
+                required
+                minLength={6}
+                value={consentNote}
+                onChange={(e) => setConsentNote(e.target.value)}
+                placeholder={s.consentNotePlaceholder}
+                className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-3.5 py-2.5 text-xs text-[#F9F1F4] placeholder-[#C8B7C0]/50"
+              />
+            </div>
 
             {uploadError && <p className="text-xs text-[#F07883]">{uploadError}</p>}
 
