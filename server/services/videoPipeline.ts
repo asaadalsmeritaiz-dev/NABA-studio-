@@ -27,7 +27,8 @@ const MONO_FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
 
 export function getStorageRoot(): string {
   const dir = path.resolve(process.cwd(), process.env.STORAGE_DIR || 'storage');
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
   return dir;
 }
 

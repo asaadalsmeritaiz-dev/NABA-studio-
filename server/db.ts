@@ -63,15 +63,26 @@ export interface StudioDatabase {
 export function initDatabase(customPath?: string): StudioDatabase {
   const dbPath = customPath ?? process.env.DATABASE_PATH ?? path.resolve(process.cwd(), 'data', 'naba_studio.sqlite');
   if (dbPath !== ':memory:') {
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
   }
 
   const db = new DatabaseSync(dbPath);
+  if (dbPath !== ':memory:') {
+    fs.chmodSync(dbPath, 0o600);
+  }
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA journal_mode = WAL;');
 
   runMigrations(db);
   seedInitialData(db);
+  if (dbPath !== ':memory:') {
+    for (const suffix of ['-wal', '-shm']) {
+      const sidecarPath = `${dbPath}${suffix}`;
+      if (fs.existsSync(sidecarPath)) {
+        fs.chmodSync(sidecarPath, 0o600);
+      }
+    }
+  }
 
   return {
     db,

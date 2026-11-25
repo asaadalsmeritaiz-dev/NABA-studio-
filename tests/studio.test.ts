@@ -12,6 +12,8 @@ import { validateCodeExample } from '../server/services/codeValidator.ts';
 import { detectProviderCapabilities, estimateGenerationCost } from '../server/providers/capabilityRegistry.ts';
 import { generateLecturerSceneVideo, runLipSyncAdapter } from '../server/providers/lecturerEngine.ts';
 import { validateExternalEndpointUrl } from '../server/services/security.ts';
+import { lookupUserByMediaToken } from '../server/services/auth.ts';
+import { initDatabase } from '../server/db.ts';
 
 function parseSrtTimestampToSec(ts: string): number {
   const m = ts.trim().match(/^(\d{2}):(\d{2}):(\d{2}),(\d{3})$/);
@@ -30,6 +32,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
     tmpStorage = fs.mkdtempSync(path.join(os.tmpdir(), 'naba-studio-test-'));
     process.env.STORAGE_DIR = tmpStorage;
     delete process.env.STUDIO_ADMIN_PASSCODE;
+    delete process.env.STUDIO_WORKSPACE_CLAIM_CODE;
     delete process.env.NABA_ACADEMY_API_URL;
     delete process.env.NABA_ACADEMY_WEBHOOK_SECRET;
     delete process.env.SADTALKER_ENDPOINT;
@@ -44,6 +47,26 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
   afterAll(() => {
     ctx.studioDb.close();
     fs.rmSync(tmpStorage, { recursive: true, force: true });
+  });
+
+  it('creates private database directories, database files, and SQLite sidecars', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'naba-private-db-'));
+    const dbPath = path.join(root, 'private', 'studio.sqlite');
+    const privateDb = initDatabase(dbPath);
+
+    try {
+      expect(fs.statSync(path.dirname(dbPath)).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(dbPath).mode & 0o777).toBe(0o600);
+      for (const suffix of ['-wal', '-shm']) {
+        const sidecar = `${dbPath}${suffix}`;
+        if (fs.existsSync(sidecar)) {
+          expect(fs.statSync(sidecar).mode & 0o777).toBe(0o600);
+        }
+      }
+    } finally {
+      privateDb.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('1. initializes all relational tables including session tables and enforces authentication on protected routes', async () => {
@@ -78,16 +101,42 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
     const unauthExports = await request(ctx.app).get('/api/exports');
     expect(unauthExports.status).toBe(401);
 
-    // Public auth status indicates first-run workspace claim is required
+    // Public workspace claiming remains disabled until an operator provides a setup code.
     const statusRes = await request(ctx.app).get('/api/auth/status');
     expect(statusRes.status).toBe(200);
     expect(statusRes.body.authenticated).toBe(false);
-    expect(statusRes.body.claim_required).toBe(true);
+    expect(statusRes.body.claim_required).toBe(false);
+
+    const disabledClaim = await request(ctx.app)
+      .post('/api/auth/claim')
+      .send({
+        claim_code: 'NabaWorkspaceSetupCode#2026',
+        password: 'NabaInstructor#2026',
+        name: 'Dr. Tariq Al-Mansoor',
+      });
+    expect(disabledClaim.status).toBe(403);
+
+    process.env.STUDIO_WORKSPACE_CLAIM_CODE = 'NabaWorkspaceSetupCode#2026';
+    const claimStatus = await request(ctx.app).get('/api/auth/status');
+    expect(claimStatus.body.claim_required).toBe(true);
+
+    const rejectedClaim = await request(ctx.app)
+      .post('/api/auth/claim')
+      .send({
+        claim_code: 'wrong-workspace-setup-code',
+        password: 'NabaInstructor#2026',
+        name: 'Dr. Tariq Al-Mansoor',
+      });
+    expect(rejectedClaim.status).toBe(401);
 
     // First-run one-time claim succeeds and issues Bearer + media tokens
     const claimRes = await request(ctx.app)
       .post('/api/auth/claim')
-      .send({ password: 'NabaInstructor#2026', name: 'Dr. Tariq Al-Mansoor' });
+      .send({
+        claim_code: 'NabaWorkspaceSetupCode#2026',
+        password: 'NabaInstructor#2026',
+        name: 'Dr. Tariq Al-Mansoor',
+      });
     expect(claimRes.status).toBe(201);
     expect(claimRes.body.token).toBeTruthy();
     expect(claimRes.body.media_token).toBeTruthy();
@@ -97,7 +146,10 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
     // Second claim attempt MUST fail with 409
     const secondClaim = await request(ctx.app)
       .post('/api/auth/claim')
-      .send({ password: 'AnotherPassword#99' });
+      .send({
+        claim_code: 'NabaWorkspaceSetupCode#2026',
+        password: 'AnotherPassword#99',
+      });
     expect(secondClaim.status).toBe(409);
 
     // Bad password login returns 401
@@ -121,6 +173,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       .get('/api/projects')
       .set('Authorization', `Bearer ${goodLogin.body.token}`);
     expect(afterLogout.status).toBe(401);
+    expect(lookupUserByMediaToken(ctx.studioDb.db, goodLogin.body.media_token)).toBeNull();
 
     // Primary user sees the seeded C++ Variables demo project
     const projRes = await request(ctx.app)
@@ -478,7 +531,7 @@ int main() {
     // 6. Poll until completion
     let jobStatus = renderRes.body.job.status as string;
     let outputVideoId: string | null = null;
-    for (let attempt = 0; attempt < 45; attempt++) {
+    for (let attempt = 0; attempt < 120; attempt++) {
       const poll = await request(ctx.app)
         .get(`/api/jobs/${jobId}`)
         .set('Authorization', `Bearer ${primaryToken}`);

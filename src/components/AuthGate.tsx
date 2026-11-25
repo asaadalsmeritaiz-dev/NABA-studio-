@@ -18,6 +18,7 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
   const [email, setEmail] = useState(authStatus.default_email || 'instructor@naba.academy');
   const [name, setName] = useState(isAr ? 'د. طارق المنصور' : 'Dr. Tariq Al-Mansour');
   const [password, setPassword] = useState('');
+  const [claimCode, setClaimCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +29,11 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
     try {
       let session: AuthSessionResponse;
       if (mode === 'claim') {
-        session = await studioApi.claimWorkspace({ password, name: name.trim() || undefined });
+        session = await studioApi.claimWorkspace({
+          claim_code: claimCode,
+          password,
+          name: name.trim() || undefined,
+        });
       } else if (mode === 'register') {
         session = await studioApi.register({ email: email.trim(), name: name.trim(), password, locale });
       } else {
@@ -101,8 +106,8 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
             <p className="text-sm text-[#C8B7C0] leading-relaxed">
               {mode === 'claim'
                 ? isAr
-                  ? 'اختر كلمة مرور لحماية مشاريعك الدروسية والملفات المصدّرة في هذه المساحة.'
-                  : 'Set a password to protect your lesson projects and exported videos.'
+                  ? 'أدخل رمز إعداد مساحة العمل الذي وفره مسؤول النظام، ثم اختر كلمة مرور جديدة.'
+                  : 'Enter the workspace setup code from your administrator, then choose a password.'
                 : mode === 'register'
                   ? isAr
                     ? 'أنشئ مساحة خاصة بك لإنتاج فيديوهاتك التعليمية.'
@@ -159,6 +164,24 @@ export function AuthGate({ locale, authStatus, onToggleLocale, onAuthenticated }
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-4 py-3 text-sm text-[#F9F1F4] placeholder-[#C8B7C0]/50 focus:border-[#C49A6C] focus:outline-none"
+                />
+              </div>
+            )}
+
+            {mode === 'claim' && (
+              <div>
+                <label className="block text-xs font-semibold text-[#C8B7C0] mb-1.5">
+                  {isAr ? 'رمز إعداد مساحة العمل' : 'Workspace Setup Code'}
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={16}
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value)}
+                  autoComplete="off"
+                  dir="ltr"
+                  className="w-full rounded-xl border border-[#654354] bg-[#180E15] px-4 py-3 text-sm text-[#F9F1F4] focus:border-[#C49A6C] focus:outline-none"
                 />
               </div>
             )}
