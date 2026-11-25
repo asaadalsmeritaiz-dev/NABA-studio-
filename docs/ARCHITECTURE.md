@@ -65,6 +65,8 @@ The platform maintains strict honesty across all 5 production modalities (`serve
 
 ## 6. Local Development & Verification Commands
 
+The production Docker image runs as the unprivileged `node` user. Its `/app/data` and `/app/storage` mount points are created with owner-only access. For bind mounts, ensure the host directories are writable by the container's `node` UID; named Docker volumes are initialized from the image permissions.
+
 ### First-run authentication configuration
 
 For an existing seeded workspace, set a private `STUDIO_WORKSPACE_CLAIM_CODE` of at least 16 characters before starting the server. Keep it out of source control and share it only with the intended workspace owner. The owner uses it once to set their own account password. Alternatively, configure `STUDIO_ADMIN_PASSCODE` to use the managed default instructor login. Do not expose a server with neither option configured if the seeded workspace must be claimed.

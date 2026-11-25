@@ -21,6 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=build /app /app
 
+RUN mkdir -p /app/data /app/storage \
+    && chown -R node:node /app/data /app/storage \
+    && chmod 700 /app/data /app/storage
+
+USER node
+
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATABASE_PATH=/app/data/naba_studio.sqlite
