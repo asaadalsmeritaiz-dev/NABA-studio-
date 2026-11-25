@@ -37,6 +37,7 @@
 - **Custom Lecturer Consent**: Uploaders submit a likeness with an attestation, but it remains unverified and unusable for provider generation. An authenticated administrator must review and approve the authorization reference through the Library or `POST /api/lecturers/:id/consent-review`; approver and timestamp are audited and persisted.
 - **Resource Ownership Isolation**: Every read, update, render, job poll/cancel, media stream, delete, and publish operation verifies that the requesting user owns the target project (or holds the `admin` role).
 - **Upload & Path Protection**: Document uploads (PDF/DOCX/PPTX/TXT, max 15 MB) and portrait uploads (JPG/PNG/WEBP, max 5 MB) validate binary magic headers, enforce likeness consent on custom lecturers, and confine all filesystem access inside `STORAGE_DIR`.
+- **Office Archive Bounds**: DOCX/PPTX ZIP central directories are checked before extraction: at most 1,000 entries, 32 MB per entry, 64 MB combined expanded size, no encrypted entries, and only stored/deflate compression.
 - **External Endpoint Validation**: Webhook and GPU worker URLs block loopback, private network ranges, and cloud metadata endpoints before issuing outbound requests.
 
 ## 3. Five-Modality Capability Honesty & AI Lecturer Engine

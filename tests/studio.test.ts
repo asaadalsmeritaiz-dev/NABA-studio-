@@ -320,6 +320,16 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
     const docxRes = await parseEducationalDocument('notes.docx', docxBuf);
     expect(docxRes.extractedText).toContain('المتغيرات في لغة C++');
 
+    const oversizedArchive = Buffer.from(docxBuf);
+    const centralEntryOffset = oversizedArchive.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    expect(centralEntryOffset).toBeGreaterThanOrEqual(0);
+    oversizedArchive.writeUInt32LE(32 * 1024 * 1024 + 1, centralEntryOffset + 24);
+    expect(validateDocumentUpload('oversized.docx', oversizedArchive).ok).toBe(false);
+
+    const encryptedArchive = Buffer.from(docxBuf);
+    encryptedArchive.writeUInt16LE(1, centralEntryOffset + 8);
+    expect(validateDocumentUpload('encrypted.docx', encryptedArchive).ok).toBe(false);
+
     const badPdf = validateDocumentUpload('fake.pdf', Buffer.from('NOT_A_PDF'));
     expect(badPdf.ok).toBe(false);
 
