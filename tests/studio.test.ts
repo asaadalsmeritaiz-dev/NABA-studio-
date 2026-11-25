@@ -3,6 +3,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import JSZip from 'jszip';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -65,6 +66,51 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       }
     } finally {
       privateDb.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('upgrades a file-backed migration-001 database through migrations 002, 003, and 004', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'naba-migration-test-'));
+    const dbPath = path.join(root, 'studio.sqlite');
+    const baseDb = new DatabaseSync(dbPath);
+    try {
+      baseDb.exec(fs.readFileSync(path.resolve(process.cwd(), 'server/migrations/001_initial.sql'), 'utf8'));
+      baseDb.exec(`
+        CREATE TABLE IF NOT EXISTS migrations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      baseDb.prepare('INSERT INTO migrations (name) VALUES (?)').run('001_initial.sql');
+      baseDb.close();
+
+      const upgraded = initDatabase(dbPath);
+      try {
+        const tables = upgraded.db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+          .all() as Array<{ name: string }>;
+        const names = new Set(tables.map((table) => table.name));
+        expect(names.has('user_sessions')).toBe(true);
+        expect(names.has('media_tokens')).toBe(true);
+        expect(names.has('exported_videos')).toBe(true);
+
+        const mediaColumns = upgraded.db
+          .prepare('PRAGMA table_info(media_tokens)')
+          .all() as Array<{ name: string }>;
+        expect(mediaColumns.some((column) => column.name === 'session_token_hash')).toBe(true);
+
+        const applied = upgraded.db
+          .prepare('SELECT name FROM migrations ORDER BY name')
+          .all() as Array<{ name: string }>;
+        expect(applied.map((row) => row.name)).toContain('002_auth_sessions_and_assets.sql');
+        expect(applied.map((row) => row.name)).toContain('003_video_format_and_indexes.sql');
+        expect(applied.map((row) => row.name)).toContain('004_session_bound_media_tokens.sql');
+      } finally {
+        upgraded.close();
+      }
+    } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
