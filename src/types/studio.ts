@@ -231,6 +231,46 @@ export interface ProjectSummary {
   updated_at: string;
 }
 
+export interface CourseLesson {
+  id: string;
+  chapter_id: string;
+  sort_order: number;
+  project_id: string | null;
+  title: string;
+  title_ar: string;
+  learning_objectives: string[];
+  estimated_duration_sec: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseChapter {
+  id: string;
+  course_id: string;
+  sort_order: number;
+  title: string;
+  title_ar: string;
+  learning_objectives: string[];
+  lessons: CourseLesson[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseRecord {
+  id: string;
+  owner_user_id: string;
+  title: string;
+  title_ar: string;
+  subject: string;
+  description: string;
+  education_level: string;
+  language: StudioLocale;
+  status: 'draft' | 'active' | 'archived';
+  chapters: CourseChapter[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectDetail extends ProjectSummary {
   materials: EducationalMaterial[];
   media_assets: MediaAssetRecord[];

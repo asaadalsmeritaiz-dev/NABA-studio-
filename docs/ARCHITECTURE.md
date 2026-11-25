@@ -8,7 +8,7 @@
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ Frontend SPA (React 19 + TypeScript + Tailwind CSS v4 + RTL/LTR i18n)     │
 │  • AuthGate (Claim / Sign In / Register)   • ErrorBoundary Recovery       │
-│  • ProjectsDashboard   • 10-Step CreationWizard   • Multi-Track Editor    │
+│  • ProjectsDashboard   • Three-Step CreationWizard • Scene-Based Editor   │
 │  • LecturersLibrary    • ExportCenter & Verified Academy Publish Bridge   │
 └───────────────────────────────┬───────────────────────────────────────────┘
                                 │ Bearer Auth + Scoped Media Tokens (/api/*)
@@ -22,10 +22,12 @@
 │  server/db.ts                 │  • Gemini 4 Hydrogen (Structured Scripts) │
 │  server/migrations/001_*.sql  │  • Gemini 3.8 Flash Lite TTS (24kHz WAV)  │
 │  server/migrations/002_*.sql  │  • g++ / python3 / node Syntax Validators │
-│  14 normalized entities       │  • FFmpeg + libass/HarfBuzz (720p MP4)    │
+│  server/migrations/006_*.sql  │  • FFmpeg + libass/HarfBuzz (720p MP4)    │
 │                               │  • AI Lecturer Engine (Lip-Sync/VideoGen) │
 └───────────────────────────────┴───────────────────────────────────────────┘
 ```
+
+The My Videos workspace includes a course manager backed by `courses`, `course_chapters`, and `course_lessons`. Lessons can store learning objectives, estimated duration, and an ownership-checked link to an editable video project. Course, chapter, lesson, and project data remain separate so deleting a curriculum does not delete its video projects.
 
 ## 2. Authentication, Ownership & Security Architecture
 
@@ -36,6 +38,7 @@
 - **Private Runtime Storage**: Newly created database directories use mode `0700`, database and SQLite sidecar files use `0600`, and the media storage root is restricted to its owner.
 - **Custom Lecturer Consent**: Uploaders submit a likeness with an attestation, but it remains unverified and unusable for provider generation. An authenticated administrator must review and approve the authorization reference through the Library or `POST /api/lecturers/:id/consent-review`; approver and timestamp are audited and persisted.
 - **Resource Ownership Isolation**: Every read, update, render, job poll/cancel, media stream, delete, and publish operation verifies that the requesting user owns the target project (or holds the `admin` role).
+- **Course Ownership Isolation**: Course curriculum endpoints scope courses to their owner; linked video projects must independently pass the existing project ownership check.
 - **Upload & Path Protection**: Document uploads (PDF/DOCX/PPTX/TXT, max 15 MB) and portrait uploads (JPG/PNG/WEBP, max 5 MB) validate binary magic headers, enforce likeness consent on custom lecturers, and confine all filesystem access inside `STORAGE_DIR`.
 - **Office Archive Bounds**: DOCX/PPTX ZIP central directories are checked before extraction: at most 1,000 entries, 32 MB per entry, 64 MB combined expanded size, no encrypted entries, and only stored/deflate compression.
 - **Untrusted Educational Sources**: Uploaded source text is length-bounded, JSON-quoted, and explicitly treated as untrusted reference data in script-generation instructions; embedded requests cannot override system instructions or output structure.

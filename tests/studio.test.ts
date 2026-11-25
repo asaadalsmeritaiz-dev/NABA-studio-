@@ -127,6 +127,9 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
         expect(names.has('user_sessions')).toBe(true);
         expect(names.has('media_tokens')).toBe(true);
         expect(names.has('exported_videos')).toBe(true);
+        expect(names.has('courses')).toBe(true);
+        expect(names.has('course_chapters')).toBe(true);
+        expect(names.has('course_lessons')).toBe(true);
 
         const mediaColumns = upgraded.db
           .prepare('PRAGMA table_info(media_tokens)')
@@ -144,6 +147,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
         expect(applied.map((row) => row.name)).toContain('003_video_format_and_indexes.sql');
         expect(applied.map((row) => row.name)).toContain('004_session_bound_media_tokens.sql');
         expect(applied.map((row) => row.name)).toContain('005_admin_reviewed_lecturer_consent.sql');
+        expect(applied.map((row) => row.name)).toContain('006_course_curriculum.sql');
       } finally {
         upgraded.close();
       }
@@ -170,6 +174,9 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       'user_sessions',
       'media_tokens',
       'projects',
+      'courses',
+      'course_chapters',
+      'course_lessons',
       'educational_materials',
       'scripts',
       'scenes',
@@ -187,6 +194,8 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
     // Unauthenticated requests to protected endpoints MUST fail with 401
     const unauthProjects = await request(ctx.app).get('/api/projects');
     expect(unauthProjects.status).toBe(401);
+    const unauthCourses = await request(ctx.app).get('/api/courses');
+    expect(unauthCourses.status).toBe(401);
 
     const unauthExports = await request(ctx.app).get('/api/exports');
     expect(unauthExports.status).toBe(401);
@@ -317,6 +326,120 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       .delete('/api/projects/proj-naba-cpp-variables-demo')
       .set('Authorization', `Bearer ${secondUserToken}`);
     expect(delOther.status).toBe(403);
+  });
+
+  it('creates a persisted course curriculum and enforces ownership of courses and linked projects', async () => {
+    const secondaryProject = await request(ctx.app)
+      .post('/api/projects')
+      .set('Authorization', `Bearer ${secondUserToken}`)
+      .send({
+        title: 'Independent project',
+        subject: 'Computer science',
+        language: 'en',
+        lecturer_id: 'lec-tariq',
+        voice_id: 'voice-ar-tariq',
+        environment_id: 'env-coding-studio',
+      });
+    expect(secondaryProject.status).toBe(201);
+
+    const invalidCourse = await request(ctx.app)
+      .post('/api/courses')
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ title: 'X', subject: 'CS' });
+    expect(invalidCourse.status).toBe(400);
+
+    const created = await request(ctx.app)
+      .post('/api/courses')
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({
+        title: 'C++ Foundations',
+        title_ar: 'أساسيات سي بلس بلس',
+        subject: 'Programming',
+        description: 'A beginner course',
+        language: 'ar',
+      });
+    expect(created.status).toBe(201);
+    const courseId = created.body.course.id as string;
+    expect(created.body.course.chapters).toEqual([]);
+
+    const foreignCourseRead = await request(ctx.app)
+      .get(`/api/courses/${courseId}`)
+      .set('Authorization', `Bearer ${secondUserToken}`);
+    expect(foreignCourseRead.status).toBe(403);
+
+    const chapterResponse = await request(ctx.app)
+      .post(`/api/courses/${courseId}/chapters`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({
+        title: 'Variables',
+        title_ar: 'المتغيرات',
+        learning_objectives: ['Define a variable', 'Choose a numeric type'],
+      });
+    expect(chapterResponse.status).toBe(201);
+    const chapterId = chapterResponse.body.chapter_id as string;
+
+    const foreignProjectLink = await request(ctx.app)
+      .post(`/api/courses/${courseId}/chapters/${chapterId}/lessons`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ title: 'Unauthorized link', project_id: secondaryProject.body.project.id });
+    expect(foreignProjectLink.status).toBe(403);
+
+    const lessonResponse = await request(ctx.app)
+      .post(`/api/courses/${courseId}/chapters/${chapterId}/lessons`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({
+        title: 'Integer variables',
+        title_ar: 'المتغيرات الصحيحة',
+        learning_objectives: ['Declare an integer'],
+        estimated_duration_sec: 420,
+        project_id: 'proj-naba-cpp-variables-demo',
+      });
+    expect(lessonResponse.status).toBe(201);
+    const lessonId = lessonResponse.body.lesson_id as string;
+    expect(lessonResponse.body.course.chapters[0].lessons[0]).toMatchObject({
+      project_id: 'proj-naba-cpp-variables-demo',
+      estimated_duration_sec: 420,
+    });
+
+    const updatedLesson = await request(ctx.app)
+      .patch(`/api/courses/${courseId}/lessons/${lessonId}`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ learning_objectives: ['Explain integer storage'], project_id: null });
+    expect(updatedLesson.status).toBe(200);
+    expect(updatedLesson.body.course.chapters[0].lessons[0].project_id).toBeNull();
+
+    const updatedChapter = await request(ctx.app)
+      .put(`/api/courses/${courseId}/chapters/${chapterId}`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ title: 'Core variables' });
+    expect(updatedChapter.body.course.chapters[0].title).toBe('Core variables');
+
+    const updatedCourse = await request(ctx.app)
+      .patch(`/api/courses/${courseId}`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ status: 'active' });
+    expect(updatedCourse.body.course.status).toBe('active');
+
+    const listed = await request(ctx.app)
+      .get('/api/courses')
+      .set('Authorization', `Bearer ${primaryToken}`);
+    expect(listed.body.courses.map((course: { id: string }) => course.id)).toContain(courseId);
+
+    const deletedChapter = await request(ctx.app)
+      .delete(`/api/courses/${courseId}/chapters/${chapterId}`)
+      .set('Authorization', `Bearer ${primaryToken}`);
+    expect(deletedChapter.status).toBe(200);
+    expect(deletedChapter.body.course.chapters).toEqual([]);
+
+    const foreignDelete = await request(ctx.app)
+      .delete(`/api/courses/${courseId}`)
+      .set('Authorization', `Bearer ${secondUserToken}`);
+    expect(foreignDelete.status).toBe(403);
+
+    const deletedCourse = await request(ctx.app)
+      .delete(`/api/courses/${courseId}`)
+      .set('Authorization', `Bearer ${primaryToken}`);
+    expect(deletedCourse.body.deleted).toBe(true);
   });
 
   it('3. parses valid TXT/DOCX documents and rejects forged PDFs and unconsented lecturer images', async () => {

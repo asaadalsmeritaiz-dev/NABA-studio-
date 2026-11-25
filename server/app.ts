@@ -52,6 +52,9 @@ import {
   resolveSafeAssetPath,
 } from './services/videoPipeline.ts';
 import type {
+  CourseChapter,
+  CourseLesson,
+  CourseRecord,
   ExportedVideo,
   Lecturer,
   MediaAssetRecord,
@@ -113,6 +116,59 @@ const UpdateProjectSchema = z.object({
   academy_course_id: z.string().max(80).nullable().optional(),
   academy_lesson_id: z.string().max(80).nullable().optional(),
 });
+
+const LearningObjectivesSchema = z.array(z.string().trim().min(2).max(240)).max(12).default([]);
+const CreateCourseSchema = z.object({
+  title: z.string().trim().min(2).max(160),
+  title_ar: z.string().trim().min(2).max(160).optional(),
+  subject: z.string().trim().min(2).max(100),
+  description: z.string().max(2000).default(''),
+  education_level: z
+    .enum(['k12', 'high_school', 'undergraduate', 'graduate', 'professional'])
+    .default('undergraduate'),
+  language: z.enum(['ar', 'en']).default('ar'),
+});
+const UpdateCourseSchema = z
+  .object({
+    title: z.string().trim().min(2).max(160).optional(),
+    title_ar: z.string().trim().min(2).max(160).optional(),
+    subject: z.string().trim().min(2).max(100).optional(),
+    description: z.string().max(2000).optional(),
+    education_level: z
+      .enum(['k12', 'high_school', 'undergraduate', 'graduate', 'professional'])
+      .optional(),
+    language: z.enum(['ar', 'en']).optional(),
+    status: z.enum(['draft', 'active', 'archived']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0);
+const CreateCourseChapterSchema = z.object({
+  title: z.string().trim().min(2).max(160),
+  title_ar: z.string().trim().min(2).max(160).optional(),
+  learning_objectives: LearningObjectivesSchema,
+});
+const UpdateCourseChapterSchema = z
+  .object({
+    title: z.string().trim().min(2).max(160).optional(),
+    title_ar: z.string().trim().min(2).max(160).optional(),
+    learning_objectives: z.array(z.string().trim().min(2).max(240)).max(12).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0);
+const CreateCourseLessonSchema = z.object({
+  title: z.string().trim().min(2).max(160),
+  title_ar: z.string().trim().min(2).max(160).optional(),
+  learning_objectives: LearningObjectivesSchema,
+  estimated_duration_sec: z.number().int().min(8).max(1800).default(300),
+  project_id: z.string().min(1).nullable().optional(),
+});
+const UpdateCourseLessonSchema = z
+  .object({
+    title: z.string().trim().min(2).max(160).optional(),
+    title_ar: z.string().trim().min(2).max(160).optional(),
+    learning_objectives: z.array(z.string().trim().min(2).max(240)).max(12).optional(),
+    estimated_duration_sec: z.number().int().min(8).max(1800).optional(),
+    project_id: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0);
 
 const GenerateScriptSchema = z.object({
   topic: z.string().min(3).max(400),
@@ -269,6 +325,109 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
       return { ok: false, status: 403, error: 'Forbidden: you do not have access to this project.' };
     }
     return { ok: true, row };
+  }
+
+  function verifyCourseOwnership(
+    courseId: string,
+    user: AuthenticatedUser,
+  ): { ok: true; row: Record<string, unknown> } | { ok: false; status: number; error: string } {
+    const row = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId) as
+      | Record<string, unknown>
+      | undefined;
+    if (!row) return { ok: false, status: 404, error: 'Course not found' };
+    if (!canAccessResource(String(row.owner_user_id), user)) {
+      return { ok: false, status: 403, error: 'Forbidden: you do not have access to this course.' };
+    }
+    return { ok: true, row };
+  }
+
+  function verifyCourseChapterOwnership(
+    courseId: string,
+    chapterId: string,
+    user: AuthenticatedUser,
+  ): { ok: true; row: Record<string, unknown> } | { ok: false; status: number; error: string } {
+    const course = verifyCourseOwnership(courseId, user);
+    if (!course.ok) return course;
+    const row = db
+      .prepare('SELECT * FROM course_chapters WHERE id = ? AND course_id = ?')
+      .get(chapterId, courseId) as Record<string, unknown> | undefined;
+    return row
+      ? { ok: true, row }
+      : { ok: false, status: 404, error: 'Course chapter not found' };
+  }
+
+  function verifyCourseLessonOwnership(
+    courseId: string,
+    lessonId: string,
+    user: AuthenticatedUser,
+  ): { ok: true; row: Record<string, unknown> } | { ok: false; status: number; error: string } {
+    const course = verifyCourseOwnership(courseId, user);
+    if (!course.ok) return course;
+    const row = db
+      .prepare(
+        `SELECT l.*, ch.course_id
+         FROM course_lessons l JOIN course_chapters ch ON ch.id = l.chapter_id
+         WHERE l.id = ? AND ch.course_id = ?`,
+      )
+      .get(lessonId, courseId) as Record<string, unknown> | undefined;
+    return row
+      ? { ok: true, row }
+      : { ok: false, status: 404, error: 'Course lesson not found' };
+  }
+
+  function getCourseDetail(courseId: string): CourseRecord | null {
+    const row = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId) as
+      | Record<string, unknown>
+      | undefined;
+    if (!row) return null;
+
+    const chapters = db
+      .prepare('SELECT * FROM course_chapters WHERE course_id = ? ORDER BY sort_order ASC')
+      .all(courseId) as Array<Record<string, unknown>>;
+    const chapterDetails: CourseChapter[] = chapters.map((chapter) => {
+      const lessons = db
+        .prepare('SELECT * FROM course_lessons WHERE chapter_id = ? ORDER BY sort_order ASC')
+        .all(String(chapter.id)) as Array<Record<string, unknown>>;
+      return {
+        id: String(chapter.id),
+        course_id: String(chapter.course_id),
+        sort_order: Number(chapter.sort_order),
+        title: String(chapter.title),
+        title_ar: String(chapter.title_ar),
+        learning_objectives: JSON.parse(String(chapter.learning_objectives_json || '[]')) as string[],
+        lessons: lessons.map(
+          (lesson): CourseLesson => ({
+            id: String(lesson.id),
+            chapter_id: String(lesson.chapter_id),
+            sort_order: Number(lesson.sort_order),
+            project_id: lesson.project_id ? String(lesson.project_id) : null,
+            title: String(lesson.title),
+            title_ar: String(lesson.title_ar),
+            learning_objectives: JSON.parse(String(lesson.learning_objectives_json || '[]')) as string[],
+            estimated_duration_sec: Number(lesson.estimated_duration_sec),
+            created_at: String(lesson.created_at),
+            updated_at: String(lesson.updated_at),
+          }),
+        ),
+        created_at: String(chapter.created_at),
+        updated_at: String(chapter.updated_at),
+      };
+    });
+
+    return {
+      id: String(row.id),
+      owner_user_id: String(row.owner_user_id),
+      title: String(row.title),
+      title_ar: String(row.title_ar),
+      subject: String(row.subject),
+      description: String(row.description),
+      education_level: String(row.education_level),
+      language: row.language === 'en' ? 'en' : 'ar',
+      status: row.status === 'active' || row.status === 'archived' ? row.status : 'draft',
+      chapters: chapterDetails,
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+    };
   }
 
   function hydrateExportRow(e: Record<string, unknown>): ExportedVideo & { subject?: string; download_url?: string } {
@@ -594,6 +753,252 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
       voices,
       environments: CLASSROOM_ENVIRONMENTS,
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Courses, Chapters & Lessons (Protected + Resource Ownership Enforced)
+  // ---------------------------------------------------------------------------
+  app.get('/api/courses', requireAuth, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const rows = (
+      user.role === 'admin'
+        ? db.prepare('SELECT id FROM courses ORDER BY updated_at DESC').all()
+        : db
+            .prepare('SELECT id FROM courses WHERE owner_user_id = ? ORDER BY updated_at DESC')
+            .all(user.id)
+    ) as Array<{ id: string }>;
+    const courses = rows
+      .map((row) => getCourseDetail(row.id))
+      .filter((course): course is CourseRecord => course !== null);
+    res.json({ courses });
+  });
+
+  app.post('/api/courses', requireAuth, (req: AuthedRequest, res) => {
+    const parsed = CreateCourseSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid course payload', issues: parsed.error.issues });
+      return;
+    }
+
+    const user = req.user!;
+    const data = parsed.data;
+    const id = `course-${crypto.randomUUID().slice(0, 10)}`;
+    db.prepare(
+      `INSERT INTO courses
+        (id, owner_user_id, title, title_ar, subject, description, education_level, language)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      user.id,
+      data.title,
+      data.title_ar ?? data.title,
+      data.subject,
+      data.description,
+      data.education_level,
+      data.language,
+    );
+    recordAuditEvent(db, {
+      userId: user.id,
+      action: 'course_created',
+      entityType: 'course',
+      entityId: id,
+      details: { subject: data.subject, language: data.language },
+    });
+    res.status(201).json({ course: getCourseDetail(id) });
+  });
+
+  app.get('/api/courses/:id', requireAuth, (req: AuthedRequest, res) => {
+    const ownership = verifyCourseOwnership(req.params.id, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    res.json({ course: getCourseDetail(req.params.id) });
+  });
+
+  app.patch('/api/courses/:id', requireAuth, (req: AuthedRequest, res) => {
+    const parsed = UpdateCourseSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid course update payload', issues: parsed.error.issues });
+      return;
+    }
+    const ownership = verifyCourseOwnership(req.params.id, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(parsed.data)) {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+    fields.push(`updated_at = datetime('now')`);
+    values.push(req.params.id);
+    db.prepare(`UPDATE courses SET ${fields.join(', ')} WHERE id = ?`).run(...(values as never[]));
+    res.json({ course: getCourseDetail(req.params.id) });
+  });
+
+  app.delete('/api/courses/:id', requireAuth, (req: AuthedRequest, res) => {
+    const ownership = verifyCourseOwnership(req.params.id, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    db.prepare('DELETE FROM courses WHERE id = ?').run(req.params.id);
+    recordAuditEvent(db, {
+      userId: req.user!.id,
+      action: 'course_deleted',
+      entityType: 'course',
+      entityId: req.params.id,
+      details: {},
+    });
+    res.json({ deleted: true, id: req.params.id });
+  });
+
+  app.post('/api/courses/:id/chapters', requireAuth, (req: AuthedRequest, res) => {
+    const parsed = CreateCourseChapterSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid course chapter payload', issues: parsed.error.issues });
+      return;
+    }
+    const ownership = verifyCourseOwnership(req.params.id, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    const data = parsed.data;
+    const orderRow = db
+      .prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM course_chapters WHERE course_id = ?')
+      .get(req.params.id) as { next_order: number };
+    const chapterId = `chapter-${crypto.randomUUID().slice(0, 10)}`;
+    db.prepare(
+      `INSERT INTO course_chapters
+        (id, course_id, sort_order, title, title_ar, learning_objectives_json)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      chapterId,
+      req.params.id,
+      orderRow.next_order,
+      data.title,
+      data.title_ar ?? data.title,
+      JSON.stringify(data.learning_objectives),
+    );
+    res.status(201).json({ course: getCourseDetail(req.params.id), chapter_id: chapterId });
+  });
+
+  app.put('/api/courses/:id/chapters/:chapterId', requireAuth, (req: AuthedRequest, res) => {
+    const parsed = UpdateCourseChapterSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid course chapter update payload', issues: parsed.error.issues });
+      return;
+    }
+    const ownership = verifyCourseChapterOwnership(req.params.id, req.params.chapterId, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(parsed.data)) {
+      fields.push(`${key === 'learning_objectives' ? 'learning_objectives_json' : key} = ?`);
+      values.push(key === 'learning_objectives' ? JSON.stringify(value) : value);
+    }
+    fields.push(`updated_at = datetime('now')`);
+    values.push(req.params.chapterId);
+    db.prepare(`UPDATE course_chapters SET ${fields.join(', ')} WHERE id = ?`).run(...(values as never[]));
+    res.json({ course: getCourseDetail(req.params.id) });
+  });
+
+  app.delete('/api/courses/:id/chapters/:chapterId', requireAuth, (req: AuthedRequest, res) => {
+    const ownership = verifyCourseChapterOwnership(req.params.id, req.params.chapterId, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    db.prepare('DELETE FROM course_chapters WHERE id = ?').run(req.params.chapterId);
+    res.json({ deleted: true, course: getCourseDetail(req.params.id) });
+  });
+
+  app.post('/api/courses/:id/chapters/:chapterId/lessons', requireAuth, (req: AuthedRequest, res) => {
+    const parsed = CreateCourseLessonSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid course lesson payload', issues: parsed.error.issues });
+      return;
+    }
+    const ownership = verifyCourseChapterOwnership(req.params.id, req.params.chapterId, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    const data = parsed.data;
+    if (data.project_id) {
+      const projectOwnership = verifyProjectOwnership(data.project_id, req.user!);
+      if (!projectOwnership.ok) {
+        res.status(projectOwnership.status).json({ error: projectOwnership.error });
+        return;
+      }
+    }
+    const orderRow = db
+      .prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM course_lessons WHERE chapter_id = ?')
+      .get(req.params.chapterId) as { next_order: number };
+    const lessonId = `lesson-${crypto.randomUUID().slice(0, 10)}`;
+    db.prepare(
+      `INSERT INTO course_lessons
+        (id, chapter_id, sort_order, project_id, title, title_ar, learning_objectives_json, estimated_duration_sec)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      lessonId,
+      req.params.chapterId,
+      orderRow.next_order,
+      data.project_id ?? null,
+      data.title,
+      data.title_ar ?? data.title,
+      JSON.stringify(data.learning_objectives),
+      data.estimated_duration_sec,
+    );
+    res.status(201).json({ course: getCourseDetail(req.params.id), lesson_id: lessonId });
+  });
+
+  app.patch('/api/courses/:id/lessons/:lessonId', requireAuth, (req: AuthedRequest, res) => {
+    const parsed = UpdateCourseLessonSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid course lesson update payload', issues: parsed.error.issues });
+      return;
+    }
+    const ownership = verifyCourseLessonOwnership(req.params.id, req.params.lessonId, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    if (parsed.data.project_id) {
+      const projectOwnership = verifyProjectOwnership(parsed.data.project_id, req.user!);
+      if (!projectOwnership.ok) {
+        res.status(projectOwnership.status).json({ error: projectOwnership.error });
+        return;
+      }
+    }
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(parsed.data)) {
+      fields.push(`${key === 'learning_objectives' ? 'learning_objectives_json' : key} = ?`);
+      values.push(key === 'learning_objectives' ? JSON.stringify(value) : value);
+    }
+    fields.push(`updated_at = datetime('now')`);
+    values.push(req.params.lessonId);
+    db.prepare(`UPDATE course_lessons SET ${fields.join(', ')} WHERE id = ?`).run(...(values as never[]));
+    res.json({ course: getCourseDetail(req.params.id) });
+  });
+
+  app.delete('/api/courses/:id/lessons/:lessonId', requireAuth, (req: AuthedRequest, res) => {
+    const ownership = verifyCourseLessonOwnership(req.params.id, req.params.lessonId, req.user!);
+    if (!ownership.ok) {
+      res.status(ownership.status).json({ error: ownership.error });
+      return;
+    }
+    db.prepare('DELETE FROM course_lessons WHERE id = ?').run(req.params.lessonId);
+    res.json({ deleted: true, course: getCourseDetail(req.params.id) });
   });
 
   // ---------------------------------------------------------------------------
