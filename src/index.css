@@ -56,6 +56,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+.katex-preview {
+  max-width: calc(100% - 1.5rem);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.katex-preview .katex {
+  color: var(--text-primary);
+  direction: ltr;
+}
+
 /* Burgundy custom scrollbars */
 ::-webkit-scrollbar {
   width: 7px;
