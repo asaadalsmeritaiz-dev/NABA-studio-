@@ -38,6 +38,7 @@
 - **Resource Ownership Isolation**: Every read, update, render, job poll/cancel, media stream, delete, and publish operation verifies that the requesting user owns the target project (or holds the `admin` role).
 - **Upload & Path Protection**: Document uploads (PDF/DOCX/PPTX/TXT, max 15 MB) and portrait uploads (JPG/PNG/WEBP, max 5 MB) validate binary magic headers, enforce likeness consent on custom lecturers, and confine all filesystem access inside `STORAGE_DIR`.
 - **Office Archive Bounds**: DOCX/PPTX ZIP central directories are checked before extraction: at most 1,000 entries, 32 MB per entry, 64 MB combined expanded size, no encrypted entries, and only stored/deflate compression.
+- **Untrusted Educational Sources**: Uploaded source text is length-bounded, JSON-quoted, and explicitly treated as untrusted reference data in script-generation instructions; embedded requests cannot override system instructions or output structure.
 - **Browser Security Headers**: The Express app sets a restrictive same-origin Content Security Policy (with explicit Google Fonts, local media/data URLs, and Vite websocket allowances), denies framing, disables MIME sniffing, and restricts referrer disclosure. Terminate TLS at a trusted proxy; HSTS is intentionally not set by the app so local HTTP development continues to work.
 - **External Endpoint Validation**: Webhook and GPU worker URLs block loopback, private network ranges, and cloud metadata endpoints before issuing outbound requests.
 
