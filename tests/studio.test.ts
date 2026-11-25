@@ -374,19 +374,21 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       .send({ authorization_reference: 'reviewed authorization #2026-01' });
     expect(deniedReview.status).toBe(403);
 
-    ctx.studioDb.db
-      .prepare("UPDATE users SET role = 'admin' WHERE id = 'usr-naba-instructor'")
-      .run();
+    process.env.STUDIO_ADMIN_PASSCODE = 'NabaAdminPasscode#2026';
+    const adminLogin = await request(ctx.app)
+      .post('/api/auth/login')
+      .send({ email: 'instructor@naba.academy', password: 'NabaAdminPasscode#2026' });
+    expect(adminLogin.status).toBe(200);
+    expect(adminLogin.body.user.role).toBe('admin');
+
     const approvedReview = await request(ctx.app)
       .post(`/api/lecturers/${submittedLecturer.body.lecturer.id}/consent-review`)
-      .set('Authorization', `Bearer ${primaryToken}`)
+      .set('Authorization', `Bearer ${adminLogin.body.token}`)
       .send({ authorization_reference: 'reviewed authorization #2026-01' });
     expect(approvedReview.status).toBe(200);
     expect(approvedReview.body.lecturer.consent_verified).toBe(1);
     expect(approvedReview.body.lecturer.consent_approved_by).toBe('usr-naba-instructor');
-    ctx.studioDb.db
-      .prepare("UPDATE users SET role = 'instructor' WHERE id = 'usr-naba-instructor'")
-      .run();
+    delete process.env.STUDIO_ADMIN_PASSCODE;
   });
 
   it('4. validates code honestly with real compilers/interpreters and NEVER claims success when a compiler is unavailable', async () => {

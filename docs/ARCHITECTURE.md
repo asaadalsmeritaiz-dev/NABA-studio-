@@ -71,7 +71,7 @@ The production Docker image runs as the unprivileged `node` user. Its `/app/data
 
 ### First-run authentication configuration
 
-For an existing seeded workspace, set a private `STUDIO_WORKSPACE_CLAIM_CODE` of at least 16 characters before starting the server. Keep it out of source control and share it only with the intended workspace owner. The owner uses it once to set their own account password. Alternatively, configure `STUDIO_ADMIN_PASSCODE` to use the managed default instructor login. Do not expose a server with neither option configured if the seeded workspace must be claimed.
+For an existing seeded workspace, set a private `STUDIO_WORKSPACE_CLAIM_CODE` of at least 16 characters before starting the server. Keep it out of source control and share it only with the intended workspace owner. The owner uses it once to set their own account password. Alternatively, configure `STUDIO_ADMIN_PASSCODE` to enable the managed default workspace administrator login; that configured account receives the admin role for protected administration, including lecturer-consent review. Do not expose a server with neither option configured if the seeded workspace must be claimed.
 
 ```bash
 # Prerequisites: Node.js 24 LTS, Bun 1.4.5, and FFmpeg
