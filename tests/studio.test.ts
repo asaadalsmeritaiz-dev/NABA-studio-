@@ -637,7 +637,7 @@ int main() {
         dialogue: 'مرحبًا بكم في أكاديمية نبأ. اليوم سنتعلم المتغيرات في لغة سي بلس بلس.',
         code_snippet: '#include <iostream>\nusing namespace std;\nint main() {\n    int age = 20;\n    cout << age;\n    return 0;\n}',
         code_language: 'cpp',
-        equation_latex: 'stdout: 20',
+        equation_latex: '\\frac{age}{2}=10',
         bullet_points: ['int age = 20;', 'cout << age;'],
         subtitle_text: 'مرحبًا بكم في أكاديمية نبأ. اليوم سنتعلم المتغيرات في لغة سي بلس بلس.',
         duration_sec: 3.0,
@@ -717,6 +717,72 @@ int main() {
     expect(videoStream?.width).toBe(1280);
     expect(videoStream?.height).toBe(720);
     expect(audioStream?.codec_name).toBe('aac');
+
+    const equationFramePixels = execFileSync(
+      'ffmpeg',
+      [
+        '-v',
+        'error',
+        '-sseof',
+        '-1',
+        '-i',
+        mp4FilePath,
+        '-vf',
+        'crop=788:66:404:422',
+        '-frames:v',
+        '1',
+        '-f',
+        'rawvideo',
+        '-pix_fmt',
+        'rgb24',
+        'pipe:1',
+      ],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    let brightEquationPixels = 0;
+    for (let pixel = 0; pixel < equationFramePixels.length; pixel += 3) {
+      if (
+        equationFramePixels[pixel] > 190 &&
+        equationFramePixels[pixel + 1] > 180 &&
+        equationFramePixels[pixel + 2] > 180
+      ) {
+        brightEquationPixels += 1;
+      }
+    }
+    expect(brightEquationPixels).toBeGreaterThan(20);
+
+    const codeFramePixels = execFileSync(
+      'ffmpeg',
+      [
+        '-v',
+        'error',
+        '-sseof',
+        '-1',
+        '-i',
+        mp4FilePath,
+        '-vf',
+        'crop=788:210:404:188',
+        '-frames:v',
+        '1',
+        '-f',
+        'rawvideo',
+        '-pix_fmt',
+        'rgb24',
+        'pipe:1',
+      ],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    let syntaxHighlightPixels = 0;
+    for (let pixel = 0; pixel < codeFramePixels.length; pixel += 3) {
+      if (
+        codeFramePixels[pixel] > 140 &&
+        codeFramePixels[pixel + 1] > 90 &&
+        codeFramePixels[pixel + 2] > 170
+      ) {
+        syntaxHighlightPixels += 1;
+      }
+    }
+    expect(syntaxHighlightPixels).toBeGreaterThan(30);
 
     const actualDurationSec = Number(probeJson.format.duration);
     expect(actualDurationSec).toBeGreaterThan(6.0);

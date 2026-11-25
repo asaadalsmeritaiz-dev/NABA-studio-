@@ -54,10 +54,17 @@ The platform maintains strict honesty across all 5 production modalities (`serve
 | **Facial Lip-Sync** | — | `SADTALKER_ENDPOINT`, `MUSETALK_ENDPOINT`, `HEYGEN_API_KEY` | Explicitly reports **Provider Not Configured** and renders framed Presenter PiP (`has_real_lipsync: false`) |
 | **Generative Lecturer Video** | — | `WAN_VIDEO_ENDPOINT`, `LTX_VIDEO_ENDPOINT`, or opt-in `gemini-omni-1.2-flash` (`ENABLE_PAID_GEMINI_MODELS=true` + explicit per-render consent) | Explicitly reports **Provider Not Configured**; never silently triggers paid APIs |
 
+### Deterministic smartboard visuals
+
+- Scene equations are parsed by KaTeX into MathML, laid out as an SVG overlay, rasterized by FFmpeg, and composited into the exported MP4. Fractions, superscripts/subscripts, square roots, fenced expressions, and ordinary inline rows are supported; unsupported or invalid TeX fails the render instead of silently appearing as raw source.
+- Code scenes display a bounded, syntax-colored listing with line numbers. Highlighting advances through code lines over the measured narration interval; scene bullet points provide the accompanying explanation.
+- Text, SVG, image, and FFmpeg filter inputs are generated from data rather than evaluated as shell commands. This local renderer does not claim generated scientific illustrations, arbitrary charts, or realistic lecturer animation.
+
 ## 4. Video Production Synchronization Guarantees
 
 - **Speech-Matched Duration**: Each scene's duration matches the probed duration of its synthesized narration track (`durationSec + 0.35s` padding) so narration is never clipped.
 - **Drift-Free Subtitles**: Exported `.srt` timestamps are built directly from `ffprobe`-measured rendered clip durations, keeping subtitles aligned across multi-scene lessons.
+- **Narration-Synchronized Code Walkthrough**: Syntax highlighting steps through scene code lines during the actual narration interval; exported subtitles and clip boundaries continue to use measured audio/video durations.
 - **Honest Code Validation**: `server/services/codeValidator.ts` executes real `g++ -fsyntax-only`, `python3 -m py_compile`, and `node --check`. If a required compiler/interpreter is missing, it returns `{ valid: false, unavailable: true }` instead of falsely reporting success.
 
 ## 5. Honest Naba Academy Integration Contract
