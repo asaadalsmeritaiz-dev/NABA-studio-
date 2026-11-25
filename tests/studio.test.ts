@@ -11,7 +11,11 @@ import { createStudioApp, type StudioAppContext } from '../server/app.ts';
 import { parseEducationalDocument, validateDocumentUpload } from '../server/services/documentParser.ts';
 import { validateCodeExample } from '../server/services/codeValidator.ts';
 import { detectProviderCapabilities, estimateGenerationCost } from '../server/providers/capabilityRegistry.ts';
-import { generateLecturerSceneVideo, runLipSyncAdapter } from '../server/providers/lecturerEngine.ts';
+import {
+  generateLecturerSceneVideo,
+  runLipSyncAdapter,
+  verifyLecturerConsent,
+} from '../server/providers/lecturerEngine.ts';
 import { validateExternalEndpointUrl } from '../server/services/security.ts';
 import { lookupUserByMediaToken } from '../server/services/auth.ts';
 import { initDatabase } from '../server/db.ts';
@@ -70,7 +74,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
     }
   });
 
-  it('upgrades a file-backed migration-001 database through migrations 002, 003, and 004', () => {
+  it('upgrades a file-backed migration-001 database through all current migrations', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'naba-migration-test-'));
     const dbPath = path.join(root, 'studio.sqlite');
     const baseDb = new DatabaseSync(dbPath);
@@ -83,6 +87,25 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
           applied_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
       `);
+      baseDb.prepare(
+        `INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)`,
+      ).run('usr-legacy', 'legacy@naba.test', 'Legacy Reviewer', 'unused');
+      baseDb.prepare(
+        `INSERT INTO lecturers
+          (id, name, name_ar, specialty, specialty_ar, bio, bio_ar, image_url, is_custom, consent_verified, consent_note, owner_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+      ).run(
+        'lec-legacy-custom',
+        'Legacy Custom',
+        'محاضر سابق',
+        'Academic',
+        'أكاديمي',
+        'Legacy bio',
+        'نبذة سابقة',
+        '/storage/lecturers/legacy.jpg',
+        'self-attested note',
+        'usr-legacy',
+      );
       baseDb.prepare('INSERT INTO migrations (name) VALUES (?)').run('001_initial.sql');
       baseDb.close();
 
@@ -100,6 +123,10 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
           .prepare('PRAGMA table_info(media_tokens)')
           .all() as Array<{ name: string }>;
         expect(mediaColumns.some((column) => column.name === 'session_token_hash')).toBe(true);
+        const legacyConsent = upgraded.db
+          .prepare('SELECT consent_verified FROM lecturers WHERE id = ?')
+          .get('lec-legacy-custom') as { consent_verified: number };
+        expect(legacyConsent.consent_verified).toBe(0);
 
         const applied = upgraded.db
           .prepare('SELECT name FROM migrations ORDER BY name')
@@ -107,6 +134,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
         expect(applied.map((row) => row.name)).toContain('002_auth_sessions_and_assets.sql');
         expect(applied.map((row) => row.name)).toContain('003_video_format_and_indexes.sql');
         expect(applied.map((row) => row.name)).toContain('004_session_bound_media_tokens.sql');
+        expect(applied.map((row) => row.name)).toContain('005_admin_reviewed_lecturer_consent.sql');
       } finally {
         upgraded.close();
       }
@@ -304,7 +332,44 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       .field('consent_verified', 'false')
       .attach('image', fakeImg, 'face.jpg');
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/consent/i);
+    expect(res.body.error).toMatch(/attestation|authorization/i);
+
+    const submittedLecturer = await request(ctx.app)
+      .post('/api/lecturers')
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .field('name', 'Instructor Portrait for Review')
+      .field('consent_verified', 'true')
+      .field('consent_note', 'submitted authorization reference')
+      .attach('image', fakeImg, 'face.jpg');
+    expect(submittedLecturer.status).toBe(201);
+    expect(submittedLecturer.body.review_status).toBe('pending');
+    expect(submittedLecturer.body.lecturer.consent_verified).toBe(0);
+    expect(
+      verifyLecturerConsent(
+        submittedLecturer.body.lecturer,
+        path.join(tmpStorage, 'lecturers', path.basename(submittedLecturer.body.lecturer.image_url)),
+      ).ok,
+    ).toBe(false);
+
+    const deniedReview = await request(ctx.app)
+      .post(`/api/lecturers/${submittedLecturer.body.lecturer.id}/consent-review`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ authorization_reference: 'reviewed authorization #2026-01' });
+    expect(deniedReview.status).toBe(403);
+
+    ctx.studioDb.db
+      .prepare("UPDATE users SET role = 'admin' WHERE id = 'usr-naba-instructor'")
+      .run();
+    const approvedReview = await request(ctx.app)
+      .post(`/api/lecturers/${submittedLecturer.body.lecturer.id}/consent-review`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({ authorization_reference: 'reviewed authorization #2026-01' });
+    expect(approvedReview.status).toBe(200);
+    expect(approvedReview.body.lecturer.consent_verified).toBe(1);
+    expect(approvedReview.body.lecturer.consent_approved_by).toBe('usr-naba-instructor');
+    ctx.studioDb.db
+      .prepare("UPDATE users SET role = 'instructor' WHERE id = 'usr-naba-instructor'")
+      .run();
   });
 
   it('4. validates code honestly with real compilers/interpreters and NEVER claims success when a compiler is unavailable', async () => {

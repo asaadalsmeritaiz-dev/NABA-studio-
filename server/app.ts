@@ -152,6 +152,10 @@ const LecturerVideoRequestSchema = z.object({
   allow_paid_video_gen: z.boolean().default(false),
 });
 
+const LecturerConsentReviewSchema = z.object({
+  authorization_reference: z.string().trim().min(6).max(240),
+});
+
 const CodeCheckSchema = z.object({
   code: z.string().min(1).max(8000),
   language: z.string().min(1).max(30).default('cpp'),
@@ -1624,17 +1628,17 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
   });
 
   app.post('/api/lecturers', requireAuth, uploadRateLimit, uploadImage.single('image'), (req: AuthedRequest, res) => {
-    const consentVerified = req.body?.consent_verified === 'true' || req.body?.consent_verified === true;
+    const uploaderAttested = req.body?.consent_verified === 'true' || req.body?.consent_verified === true;
     const consentNote = String(req.body?.consent_note || '').trim();
     const name = String(req.body?.name || '').trim();
     const nameAr = String(req.body?.name_ar || name).trim();
     const specialty = String(req.body?.specialty || 'Academic Lecturer').trim();
     const specialtyAr = String(req.body?.specialty_ar || specialty).trim();
 
-    if (!consentVerified || consentNote.length < 6) {
+    if (!uploaderAttested || consentNote.length < 6) {
       res.status(400).json({
         error:
-          'Explicit likeness consent verification and authorization note are mandatory before uploading a custom lecturer reference photo.',
+          'Uploader attestation and an authorization reference are required before submitting a custom lecturer for review.',
       });
       return;
     }
@@ -1665,7 +1669,7 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
     db.prepare(
       `INSERT INTO lecturers
         (id, name, name_ar, specialty, specialty_ar, bio, bio_ar, image_url, is_custom, consent_verified, consent_note, owner_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
     ).run(
       lecturerId,
       name,
@@ -1684,12 +1688,62 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
       action: 'custom_lecturer_uploaded',
       entityType: 'lecturer',
       entityId: lecturerId,
-      details: { consent_verified: true, consent_note: consentNote },
+      details: { consent_verified: false, uploader_attested: true },
     });
 
     const created = db.prepare('SELECT * FROM lecturers WHERE id = ?').get(lecturerId);
-    res.status(201).json({ lecturer: created });
+    res.status(201).json({
+      lecturer: created,
+      review_status: 'pending',
+      message: 'Submitted for administrator consent review. Likeness generation remains disabled until approval.',
+    });
   });
+
+  app.post(
+    '/api/lecturers/:id/consent-review',
+    requireAuth,
+    (req: AuthedRequest, res) => {
+      if (req.user!.role !== 'admin') {
+        res.status(403).json({ error: 'Administrator approval is required to verify likeness consent.' });
+        return;
+      }
+
+      const parsed = LecturerConsentReviewSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Provide a reviewable authorization reference.' });
+        return;
+      }
+
+      const lecturer = db
+        .prepare('SELECT id, is_custom FROM lecturers WHERE id = ?')
+        .get(req.params.id) as { id: string; is_custom: number } | undefined;
+      if (!lecturer) {
+        res.status(404).json({ error: 'Lecturer not found.' });
+        return;
+      }
+      if (!lecturer.is_custom) {
+        res.status(400).json({ error: 'Built-in synthetic lecturers do not require consent review.' });
+        return;
+      }
+
+      db.prepare(
+        `UPDATE lecturers
+         SET consent_verified = 1, consent_note = ?, consent_approved_by = ?, consent_approved_at = datetime('now')
+         WHERE id = ?`,
+      ).run(parsed.data.authorization_reference, req.user!.id, lecturer.id);
+
+      recordAuditEvent(db, {
+        userId: req.user!.id,
+        action: 'custom_lecturer_consent_approved',
+        entityType: 'lecturer',
+        entityId: lecturer.id,
+        details: { authorization_reference: parsed.data.authorization_reference },
+      });
+
+      const reviewed = db.prepare('SELECT * FROM lecturers WHERE id = ?').get(lecturer.id);
+      res.json({ lecturer: reviewed, review_status: 'approved' });
+    },
+  );
 
   app.get('/storage/lecturers/:filename', requireMediaAuth, (req: AuthedRequest, res) => {
     const baseDir = path.resolve(getStorageRoot(), 'lecturers');

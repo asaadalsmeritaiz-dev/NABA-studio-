@@ -266,6 +266,16 @@ export const studioApi = {
       body: formData,
     }),
 
+  reviewLecturerConsent: (lecturerId: string, authorizationReference: string) =>
+    apiFetch<{ lecturer: Lecturer; review_status: 'approved' }>(
+      `/api/lecturers/${encodeURIComponent(lecturerId)}/consent-review`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authorization_reference: authorizationReference }),
+      },
+    ),
+
   // Code Validation
   validateCode: (code: string, language: string) =>
     apiFetch<{ result: CodeValidationResult }>('/api/tools/validate-code', {

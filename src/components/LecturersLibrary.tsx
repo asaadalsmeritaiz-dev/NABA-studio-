@@ -11,6 +11,7 @@ import { studioApi, withMediaToken } from '../lib/api.ts';
 
 interface Props {
   locale: StudioLocale;
+  isAdmin: boolean;
   lecturers: Lecturer[];
   voices: VoiceProfile[];
   environments: ClassroomEnvironment[];
@@ -25,6 +26,7 @@ interface Props {
 
 export function LecturersLibrary({
   locale,
+  isAdmin,
   lecturers,
   voices,
   environments,
@@ -56,6 +58,9 @@ export function LecturersLibrary({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [reviewReferences, setReviewReferences] = useState<Record<string, string>>({});
+  const [reviewingLecturerId, setReviewingLecturerId] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   async function handlePreviewVoice(v: VoiceProfile) {
     setPreviewingVoiceId(v.id);
@@ -119,6 +124,26 @@ export function LecturersLibrary({
       setUploadError(err instanceof Error ? err.message : isAr ? 'فشل رفع صورة المحاضر' : 'Upload failed');
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleApproveConsent(lecturerId: string) {
+    const authorizationReference = reviewReferences[lecturerId]?.trim() ?? '';
+    if (authorizationReference.length < 6) {
+      setReviewError(isAr ? 'أدخل مرجع الإذن الذي تمت مراجعته.' : 'Enter the reviewed authorization reference.');
+      return;
+    }
+
+    setReviewingLecturerId(lecturerId);
+    setReviewError(null);
+    try {
+      await studioApi.reviewLecturerConsent(lecturerId, authorizationReference);
+      setReviewReferences((current) => ({ ...current, [lecturerId]: '' }));
+      await onLecturerAdded();
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : isAr ? 'تعذرت مراجعة الإذن' : 'Consent review failed');
+    } finally {
+      setReviewingLecturerId(null);
     }
   }
 
@@ -198,6 +223,54 @@ export function LecturersLibrary({
                     <p className="text-xs text-[#C8B7C0] line-clamp-2 leading-relaxed">
                       {isAr ? lec.bio_ar : lec.bio}
                     </p>
+                    {lec.is_custom === 1 && (
+                      <div className="pt-2">
+                        {lec.consent_verified ? (
+                          <p className="text-[11px] font-semibold text-[#49B894]">
+                            {s.lecturerConsentApproved}
+                          </p>
+                        ) : (
+                          <div className="space-y-2 rounded-lg border border-[#E7B66A]/40 bg-[#E7B66A]/10 p-2.5">
+                            <p className="text-[11px] font-semibold text-[#E7B66A]">
+                              {s.lecturerConsentPending}
+                            </p>
+                            {isAdmin && (
+                              <>
+                                <label className="sr-only" htmlFor={`consent-review-${lec.id}`}>
+                                  {s.lecturerConsentReference}
+                                </label>
+                                <input
+                                  id={`consent-review-${lec.id}`}
+                                  type="text"
+                                  minLength={6}
+                                  value={reviewReferences[lec.id] ?? ''}
+                                  onChange={(event) =>
+                                    setReviewReferences((current) => ({
+                                      ...current,
+                                      [lec.id]: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={s.lecturerConsentReference}
+                                  className="w-full rounded-lg border border-[#654354] bg-[#180E15] px-2.5 py-2 text-xs text-[#F9F1F4]"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={reviewingLecturerId === lec.id}
+                                  onClick={() => void handleApproveConsent(lec.id)}
+                                  className="w-full rounded-lg bg-[#78263F] px-3 py-2 text-xs font-bold text-[#F9F1F4] disabled:opacity-60"
+                                >
+                                  {reviewingLecturerId === lec.id
+                                    ? isAr
+                                      ? 'جارٍ المراجعة...'
+                                      : 'Reviewing...'
+                                    : s.lecturerConsentApprove}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -222,6 +295,12 @@ export function LecturersLibrary({
       )}
 
       {/* Voices List */}
+      {reviewError && (
+        <div role="alert" className="rounded-xl border border-[#F07883]/50 bg-[#F07883]/10 px-4 py-3 text-xs text-[#F07883]">
+          {reviewError}
+        </div>
+      )}
+
       {tab === 'voices' && (
         <div className="space-y-4">
           {voiceError && (

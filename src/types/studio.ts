@@ -61,6 +61,8 @@ export interface Lecturer {
   is_custom: number;
   consent_verified: number;
   consent_note: string | null;
+  consent_approved_by?: string | null;
+  consent_approved_at?: string | null;
   owner_user_id?: string | null;
   created_at: string;
 }

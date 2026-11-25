@@ -386,6 +386,7 @@ export default function App() {
           {view === 'library' && (
             <LecturersLibrary
               locale={locale}
+              isAdmin={currentUser?.role === 'admin'}
               lecturers={lecturers}
               voices={voices}
               environments={environments}
