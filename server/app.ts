@@ -65,6 +65,7 @@ import type {
 } from '../src/types/studio.ts';
 
 const ClaimWorkspaceSchema = z.object({
+  claim_code: z.string().min(16).max(256),
   password: z.string().min(8).max(128),
   name: z.string().min(2).max(80).optional(),
 });
@@ -441,7 +442,12 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
       return;
     }
 
-    const result = claimDefaultWorkspace(db, parsed.data.password, parsed.data.name);
+    const result = claimDefaultWorkspace(
+      db,
+      parsed.data.password,
+      parsed.data.claim_code,
+      parsed.data.name,
+    );
     if (!result.ok) {
       res.status(result.status).json({ error: result.error });
       return;

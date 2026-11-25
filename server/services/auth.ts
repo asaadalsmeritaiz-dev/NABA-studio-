@@ -28,8 +28,13 @@ export function getConfiguredAdminPasscode(): string | null {
   return raw && raw.length >= 4 ? raw : null;
 }
 
+export function getConfiguredWorkspaceClaimCode(): string | null {
+  const raw = process.env.STUDIO_WORKSPACE_CLAIM_CODE?.trim();
+  return raw && raw.length >= 16 ? raw : null;
+}
+
 export function isWorkspaceClaimRequired(db: DatabaseSync): boolean {
-  if (getConfiguredAdminPasscode()) return false;
+  if (getConfiguredAdminPasscode() || !getConfiguredWorkspaceClaimCode()) return false;
   const row = db
     .prepare('SELECT workspace_claimed FROM users WHERE id = ?')
     .get(DEFAULT_INSTRUCTOR_ID) as { workspace_claimed?: number } | undefined;
@@ -43,16 +48,17 @@ export function issueSessionForUser(
 ): { token: string; mediaToken: string; expiresAt: string } {
   const rawToken = generateOpaqueToken(32);
   const rawMediaToken = generateOpaqueToken(24);
+  const sessionTokenHash = hashSecretToken(rawToken);
   const sessionExpires = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
   const mediaExpires = new Date(Date.now() + MEDIA_TOKEN_TTL_HOURS * 3600 * 1000).toISOString();
 
   db.prepare(
     `INSERT INTO user_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)`,
-  ).run(hashSecretToken(rawToken), userId, sessionExpires);
+  ).run(sessionTokenHash, userId, sessionExpires);
 
   db.prepare(
-    `INSERT INTO media_tokens (token_hash, user_id, expires_at) VALUES (?, ?, ?)`,
-  ).run(hashSecretToken(rawMediaToken), userId, mediaExpires);
+    `INSERT INTO media_tokens (token_hash, user_id, expires_at, session_token_hash) VALUES (?, ?, ?, ?)`,
+  ).run(hashSecretToken(rawMediaToken), userId, mediaExpires, sessionTokenHash);
 
   // Prune expired sessions lazily
   db.prepare(`DELETE FROM user_sessions WHERE expires_at < ?`).run(new Date().toISOString());
@@ -62,7 +68,15 @@ export function issueSessionForUser(
 }
 
 export function revokeSessionToken(db: DatabaseSync, rawToken: string): void {
-  db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(hashSecretToken(rawToken));
+  const sessionTokenHash = hashSecretToken(rawToken);
+  const session = db
+    .prepare('SELECT user_id FROM user_sessions WHERE token_hash = ?')
+    .get(sessionTokenHash) as { user_id: string } | undefined;
+  if (!session) return;
+
+  db.prepare('DELETE FROM media_tokens WHERE session_token_hash = ? OR (user_id = ? AND session_token_hash IS NULL)')
+    .run(sessionTokenHash, session.user_id);
+  db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(sessionTokenHash);
 }
 
 export function hydrateUserRow(row: Record<string, unknown>): AuthenticatedUser {
@@ -102,15 +116,24 @@ export function lookupUserByMediaToken(db: DatabaseSync, rawToken: string): Auth
   if (!rawToken || rawToken.length < 16) return null;
   const row = db
     .prepare(
-      `SELECT u.id, u.email, u.name, u.role, u.locale, u.workspace_claimed, m.expires_at
+      `SELECT u.id, u.email, u.name, u.role, u.locale, u.workspace_claimed, m.expires_at,
+              m.session_token_hash,
+              s.expires_at AS session_expires_at
        FROM media_tokens m
        JOIN users u ON u.id = m.user_id
+       LEFT JOIN user_sessions s ON s.token_hash = m.session_token_hash
        WHERE m.token_hash = ?`,
     )
     .get(hashSecretToken(rawToken)) as Record<string, unknown> | undefined;
 
   if (!row) return null;
-  if (new Date(String(row.expires_at)).getTime() <= Date.now()) {
+  if (
+    new Date(String(row.expires_at)).getTime() <= Date.now() ||
+    (row.session_token_hash !== null &&
+      row.session_token_hash !== undefined &&
+      (!row.session_expires_at ||
+        new Date(String(row.session_expires_at)).getTime() <= Date.now()))
+  ) {
     db.prepare('DELETE FROM media_tokens WHERE token_hash = ?').run(hashSecretToken(rawToken));
     return null;
   }
@@ -209,6 +232,7 @@ export function authenticateUserCredentials(
 export function claimDefaultWorkspace(
   db: DatabaseSync,
   password: string,
+  claimCode: string,
   displayName?: string,
 ): { ok: true; user: AuthenticatedUser } | { ok: false; status: number; error: string } {
   if (getConfiguredAdminPasscode()) {
@@ -217,6 +241,23 @@ export function claimDefaultWorkspace(
       status: 403,
       error: 'Workspace passcode is managed via STUDIO_ADMIN_PASSCODE environment configuration.',
     };
+  }
+
+  const configuredClaimCode = getConfiguredWorkspaceClaimCode();
+  if (!configuredClaimCode) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Workspace claiming is disabled. Configure STUDIO_WORKSPACE_CLAIM_CODE with at least 16 characters.',
+    };
+  }
+  const expectedCode = Buffer.from(configuredClaimCode, 'utf8');
+  const providedCode = Buffer.from(claimCode, 'utf8');
+  if (
+    expectedCode.length !== providedCode.length ||
+    !crypto.timingSafeEqual(expectedCode, providedCode)
+  ) {
+    return { ok: false, status: 401, error: 'The workspace setup code is invalid.' };
   }
 
   const row = db

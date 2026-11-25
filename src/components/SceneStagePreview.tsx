@@ -1,5 +1,6 @@
 import React from 'react';
 import { Code2, Sigma } from 'lucide-react';
+import katex from 'katex';
 import type {
   ClassroomEnvironment,
   Lecturer,
@@ -8,6 +9,19 @@ import type {
   VideoAspectRatio,
 } from '../types/studio.ts';
 import { withMediaToken } from '../lib/api.ts';
+
+function renderLatex(source: string): string {
+  try {
+    return katex.renderToString(source, {
+      throwOnError: false,
+      strict: 'warn',
+      output: 'html',
+      displayMode: false,
+    });
+  } catch {
+    return '';
+  }
+}
 
 interface Props {
   scene: SceneRecord;
@@ -135,12 +149,15 @@ export function SceneStagePreview({
             {scene.equation_latex.trim() && (
               <div
                 dir="ltr"
-                className="rounded-lg border border-[#C49A6C]/50 bg-[#341A29] px-3 py-2 flex items-center gap-2"
+                className="rounded-lg border border-[#C49A6C]/50 bg-[#341A29] px-3 py-2 flex items-center justify-center"
               >
-                <Sigma className="w-3.5 h-3.5 text-[#C49A6C] shrink-0" />
-                <code className="text-xs font-mono text-[#F9F1F4] truncate">
-                  {scene.equation_latex}
-                </code>
+                <Sigma className="w-3.5 h-3.5 text-[#C49A6C] shrink-0 me-2" />
+                <div
+                  className="katex-preview text-[#F9F1F4] overflow-hidden"
+                  dangerouslySetInnerHTML={{
+                    __html: renderLatex(scene.equation_latex),
+                  }}
+                />
               </div>
             )}
 

@@ -78,7 +78,7 @@ export const studioApi = {
   // Authentication
   getAuthStatus: () => apiFetch<AuthStatus>('/api/auth/status'),
 
-  claimWorkspace: (payload: { password: string; name?: string }) =>
+  claimWorkspace: (payload: { claim_code: string; password: string; name?: string }) =>
     apiFetch<AuthSessionResponse>('/api/auth/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

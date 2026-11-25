@@ -31,7 +31,9 @@
 
 - **Server-Side Sessions (`user_sessions` & `media_tokens`)**: All studio API routes (`/api/projects/*`, `/api/jobs/*`, `/api/exports/*`, `/api/lecturers`, `/api/academy/publish/*`, `/api/audit`, `/api/tools/validate-code`) require a valid server-verified Bearer token. Tokens are stored hashed (SHA-256) in SQLite and kept strictly in browser JS memory (never `localStorage`).
 - **Scoped Media Tokens**: `<video>`, `<audio>`, custom lecturer portraits, and MP4/SRT download links authenticate via short-lived `?media_token=` tokens verified against project/lecturer ownership.
-- **First-Run Workspace Claim**: When `STUDIO_ADMIN_PASSCODE` is unset, the first instructor to open the studio sets a one-time password via `/api/auth/claim` to unlock existing workspace records (preserving all seeded projects and exported MP4s). Additional instructors can register isolated workspaces via `/api/auth/register`.
+- **First-Run Workspace Claim**: A first-run claim is available only when an operator configures `STUDIO_WORKSPACE_CLAIM_CODE` (at least 16 characters) and no `STUDIO_ADMIN_PASSCODE` is configured. The instructor must provide that setup code and chooses a separate account password. Without either configured credential, public claim is disabled; users may register a separate workspace instead. Additional instructors can register isolated workspaces via `/api/auth/register`.
+- **Session-Bound Media Tokens**: Media tokens are associated with the session that issued them. Logging out revokes both that session and its media token; older unassociated tokens are revoked on logout for the same account.
+- **Private Runtime Storage**: Newly created database directories use mode `0700`, database and SQLite sidecar files use `0600`, and the media storage root is restricted to its owner.
 - **Resource Ownership Isolation**: Every read, update, render, job poll/cancel, media stream, delete, and publish operation verifies that the requesting user owns the target project (or holds the `admin` role).
 - **Upload & Path Protection**: Document uploads (PDF/DOCX/PPTX/TXT, max 15 MB) and portrait uploads (JPG/PNG/WEBP, max 5 MB) validate binary magic headers, enforce likeness consent on custom lecturers, and confine all filesystem access inside `STORAGE_DIR`.
 - **External Endpoint Validation**: Webhook and GPU worker URLs block loopback, private network ranges, and cloud metadata endpoints before issuing outbound requests.
@@ -62,19 +64,23 @@ The platform maintains strict honesty across all 5 production modalities (`serve
 
 ## 6. Local Development & Verification Commands
 
+### First-run authentication configuration
+
+For an existing seeded workspace, set a private `STUDIO_WORKSPACE_CLAIM_CODE` of at least 16 characters before starting the server. Keep it out of source control and share it only with the intended workspace owner. The owner uses it once to set their own account password. Alternatively, configure `STUDIO_ADMIN_PASSCODE` to use the managed default instructor login. Do not expose a server with neither option configured if the seeded workspace must be claimed.
+
 ```bash
-# Install dependencies
-npm install
+# Prerequisites: Node.js 24 LTS, Bun 1.4.5, and FFmpeg
+bun install --frozen-lockfile
 
 # Run full automated test suite (auth, ownership, uploads, code validation, FFmpeg MP4/SRT, publishing)
-npm test
+bun run test
 
 # Type-check codebase
-npm run lint
+bun run lint
 
 # Build production frontend bundle
-npm run build
+bun run build
 
 # Start full-stack server on port 3000
-npm run dev
+bun run dev
 ```
