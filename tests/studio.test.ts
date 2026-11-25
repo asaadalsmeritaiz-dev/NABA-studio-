@@ -144,6 +144,13 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
   });
 
   it('1. initializes all relational tables including session tables and enforces authentication on protected routes', async () => {
+    const health = await request(ctx.app).get('/api/health');
+    expect(health.status).toBe(200);
+    expect(health.headers['x-content-type-options']).toBe('nosniff');
+    expect(health.headers['x-frame-options']).toBe('DENY');
+    expect(health.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(health.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+
     const tables = ctx.studioDb.db
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all() as Array<{ name: string }>;
