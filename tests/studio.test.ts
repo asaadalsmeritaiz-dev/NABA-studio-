@@ -767,10 +767,50 @@ int main() {
       expect(res.body.project.scenes.some((scene: { code_snippet: string }) =>
         scene.code_snippet.includes('bool passed'),
       )).toBe(true);
+
+      const renderRes = await request(ctx.app)
+        .post('/api/projects/proj-naba-cpp-variables-demo/render')
+        .set('Authorization', `Bearer ${primaryToken}`)
+        .send({ mode: 'local', allow_cloud_tts: false });
+      expect(renderRes.status).toBe(202);
+
+      const jobId = renderRes.body.job.id as string;
+      let jobStatus = 'queued';
+      let outputVideoId: string | null = null;
+      for (let attempt = 0; attempt < 360; attempt++) {
+        const poll = await request(ctx.app)
+          .get(`/api/jobs/${jobId}`)
+          .set('Authorization', `Bearer ${primaryToken}`);
+        jobStatus = poll.body.job.status;
+        outputVideoId = poll.body.job.output_video_id;
+        if (['completed', 'failed', 'cancelled'].includes(jobStatus)) break;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+
+      expect(jobStatus).toBe('completed');
+      expect(outputVideoId).toBeTruthy();
+
+      const mp4Path = path.join(tmpStorage, 'exports', `${outputVideoId}.mp4`);
+      const probeJson = JSON.parse(
+        execFileSync(
+          'ffprobe',
+          ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', mp4Path],
+          { encoding: 'utf8' },
+        ),
+      ) as {
+        format: { duration: string; format_name: string };
+        streams: Array<{ codec_type: string; codec_name: string; width?: number; height?: number }>;
+      };
+      expect(probeJson.format.format_name).toContain('mov');
+      expect(Number(probeJson.format.duration)).toBeGreaterThan(20);
+      expect(probeJson.streams).toEqual(expect.arrayContaining([
+        expect.objectContaining({ codec_type: 'video', codec_name: 'h264', width: 1280, height: 720 }),
+        expect.objectContaining({ codec_type: 'audio', codec_name: 'aac' }),
+      ]));
     } finally {
       if (prevKey !== undefined) process.env.GEMINI_API_KEY = prevKey;
     }
-  });
+  }, 300000);
 
   it('7. runs end-to-end pipeline: CRUD -> material upload/delete -> lecturer-video 503 honesty -> FFmpeg MP4 render -> duration-synced SRT -> honest Academy publish (local, 200 confirmed, 500 failed)', async () => {
     // 1. Create project
