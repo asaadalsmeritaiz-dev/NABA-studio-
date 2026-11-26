@@ -3,6 +3,7 @@ import type {
   ClassroomEnvironment,
   CodeValidationResult,
   CostEstimate,
+  CourseRecord,
   ExportedVideo,
   GenerationJob,
   Lecturer,
@@ -117,6 +118,118 @@ export const studioApi = {
   listProjects: () => apiFetch<{ projects: ProjectSummary[] }>('/api/projects'),
 
   getProject: (id: string) => apiFetch<{ project: ProjectDetail }>(`/api/projects/${id}`),
+
+  // Courses, chapters & linked video lessons
+  listCourses: () => apiFetch<{ courses: CourseRecord[] }>('/api/courses'),
+
+  createCourse: (payload: {
+    title: string;
+    title_ar?: string;
+    subject: string;
+    description?: string;
+    education_level?: string;
+    language: 'ar' | 'en';
+  }) =>
+    apiFetch<{ course: CourseRecord }>('/api/courses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  updateCourse: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<{ course: CourseRecord }>(`/api/courses/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCourse: (id: string) =>
+    apiFetch<{ deleted: boolean; id: string }>(`/api/courses/${id}`, { method: 'DELETE' }),
+
+  createCourseChapter: (
+    courseId: string,
+    payload: { title: string; title_ar?: string; learning_objectives: string[] },
+  ) =>
+    apiFetch<{ course: CourseRecord; chapter_id: string }>(`/api/courses/${courseId}/chapters`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  updateCourseChapter: (
+    courseId: string,
+    chapterId: string,
+    payload: { title?: string; title_ar?: string; learning_objectives?: string[] },
+  ) =>
+    apiFetch<{ course: CourseRecord }>(`/api/courses/${courseId}/chapters/${chapterId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCourseChapter: (courseId: string, chapterId: string) =>
+    apiFetch<{ deleted: boolean; course: CourseRecord }>(
+      `/api/courses/${courseId}/chapters/${chapterId}`,
+      { method: 'DELETE' },
+    ),
+
+  createCourseLesson: (
+    courseId: string,
+    chapterId: string,
+    payload: {
+      title: string;
+      title_ar?: string;
+      learning_objectives: string[];
+      exercises?: Array<{ prompt: string; solution?: string; example_code?: string }>;
+      assessment?: Array<{
+        question: string;
+        options: string[];
+        correct_option_index: number;
+        explanation?: string;
+      }>;
+      source_material_ids?: string[];
+      estimated_duration_sec?: number;
+      project_id?: string | null;
+    },
+  ) =>
+    apiFetch<{ course: CourseRecord; lesson_id: string }>(
+      `/api/courses/${courseId}/chapters/${chapterId}/lessons`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    ),
+
+  updateCourseLesson: (
+    courseId: string,
+    lessonId: string,
+    payload: {
+      title?: string;
+      title_ar?: string;
+      learning_objectives?: string[];
+      exercises?: Array<{ prompt: string; solution?: string; example_code?: string }>;
+      assessment?: Array<{
+        question: string;
+        options: string[];
+        correct_option_index: number;
+        explanation?: string;
+      }>;
+      source_material_ids?: string[];
+      estimated_duration_sec?: number;
+      project_id?: string | null;
+    },
+  ) =>
+    apiFetch<{ course: CourseRecord }>(`/api/courses/${courseId}/lessons/${lessonId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCourseLesson: (courseId: string, lessonId: string) =>
+    apiFetch<{ deleted: boolean; course: CourseRecord }>(`/api/courses/${courseId}/lessons/${lessonId}`, {
+      method: 'DELETE',
+    }),
 
   createProject: (payload: {
     title: string;
@@ -265,6 +378,16 @@ export const studioApi = {
       method: 'POST',
       body: formData,
     }),
+
+  reviewLecturerConsent: (lecturerId: string, authorizationReference: string) =>
+    apiFetch<{ lecturer: Lecturer; review_status: 'approved' }>(
+      `/api/lecturers/${encodeURIComponent(lecturerId)}/consent-review`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authorization_reference: authorizationReference }),
+      },
+    ),
 
   // Code Validation
   validateCode: (code: string, language: string) =>

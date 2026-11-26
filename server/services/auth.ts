@@ -81,8 +81,12 @@ export function revokeSessionToken(db: DatabaseSync, rawToken: string): void {
 
 export function hydrateUserRow(row: Record<string, unknown>): AuthenticatedUser {
   const roleStr = String(row.role || 'instructor');
-  const role: AuthenticatedUser['role'] =
+  const storedRole: AuthenticatedUser['role'] =
     roleStr === 'admin' || roleStr === 'reviewer' ? roleStr : 'instructor';
+  const role =
+    String(row.id) === DEFAULT_INSTRUCTOR_ID && getConfiguredAdminPasscode()
+      ? 'admin'
+      : storedRole;
   return {
     id: String(row.id),
     email: String(row.email),

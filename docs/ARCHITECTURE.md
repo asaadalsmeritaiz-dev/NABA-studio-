@@ -8,7 +8,7 @@
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ Frontend SPA (React 19 + TypeScript + Tailwind CSS v4 + RTL/LTR i18n)     │
 │  • AuthGate (Claim / Sign In / Register)   • ErrorBoundary Recovery       │
-│  • ProjectsDashboard   • 10-Step CreationWizard   • Multi-Track Editor    │
+│  • ProjectsDashboard   • Three-Step CreationWizard • Scene-Based Editor   │
 │  • LecturersLibrary    • ExportCenter & Verified Academy Publish Bridge   │
 └───────────────────────────────┬───────────────────────────────────────────┘
                                 │ Bearer Auth + Scoped Media Tokens (/api/*)
@@ -22,10 +22,12 @@
 │  server/db.ts                 │  • Gemini 4 Hydrogen (Structured Scripts) │
 │  server/migrations/001_*.sql  │  • Gemini 3.8 Flash Lite TTS (24kHz WAV)  │
 │  server/migrations/002_*.sql  │  • g++ / python3 / node Syntax Validators │
-│  14 normalized entities       │  • FFmpeg + libass/HarfBuzz (720p MP4)    │
+│  server/migrations/006_*.sql  │  • FFmpeg + libass/HarfBuzz (720p MP4)    │
 │                               │  • AI Lecturer Engine (Lip-Sync/VideoGen) │
 └───────────────────────────────┴───────────────────────────────────────────┘
 ```
+
+The My Videos workspace includes a course manager backed by `courses`, `course_chapters`, and `course_lessons`. Lessons store learning objectives, exercise prompts, validated multiple-choice questions, estimated duration, source-document links, and an ownership-checked link to an editable video project. Source documents must belong to the linked project; deleting that project cascades its material references but preserves the course and lesson. Course, chapter, lesson, and project data remain separate so deleting a curriculum does not delete its video projects.
 
 ## 2. Authentication, Ownership & Security Architecture
 
@@ -34,8 +36,13 @@
 - **First-Run Workspace Claim**: A first-run claim is available only when an operator configures `STUDIO_WORKSPACE_CLAIM_CODE` (at least 16 characters) and no `STUDIO_ADMIN_PASSCODE` is configured. The instructor must provide that setup code and chooses a separate account password. Without either configured credential, public claim is disabled; users may register a separate workspace instead. Additional instructors can register isolated workspaces via `/api/auth/register`.
 - **Session-Bound Media Tokens**: Media tokens are associated with the session that issued them. Logging out revokes both that session and its media token; older unassociated tokens are revoked on logout for the same account.
 - **Private Runtime Storage**: Newly created database directories use mode `0700`, database and SQLite sidecar files use `0600`, and the media storage root is restricted to its owner.
+- **Custom Lecturer Consent**: Uploaders submit a likeness with an attestation, but it remains unverified and unusable for provider generation. An authenticated administrator must review and approve the authorization reference through the Library or `POST /api/lecturers/:id/consent-review`; approver and timestamp are audited and persisted.
 - **Resource Ownership Isolation**: Every read, update, render, job poll/cancel, media stream, delete, and publish operation verifies that the requesting user owns the target project (or holds the `admin` role).
+- **Course Ownership Isolation**: Course curriculum endpoints scope courses to their owner; linked video projects must independently pass the existing project ownership check.
 - **Upload & Path Protection**: Document uploads (PDF/DOCX/PPTX/TXT, max 15 MB) and portrait uploads (JPG/PNG/WEBP, max 5 MB) validate binary magic headers, enforce likeness consent on custom lecturers, and confine all filesystem access inside `STORAGE_DIR`.
+- **Office Archive Bounds**: DOCX/PPTX ZIP central directories are checked before extraction: at most 1,000 entries, 32 MB per entry, 64 MB combined expanded size, no encrypted entries, and only stored/deflate compression.
+- **Untrusted Educational Sources**: Uploaded source text is length-bounded, JSON-quoted, and explicitly treated as untrusted reference data in script-generation instructions; embedded requests cannot override system instructions or output structure.
+- **Browser Security Headers**: The Express app sets a restrictive same-origin Content Security Policy (with explicit Google Fonts, local media/data URLs, and Vite websocket allowances), denies framing, disables MIME sniffing, and restricts referrer disclosure. Terminate TLS at a trusted proxy; HSTS is intentionally not set by the app so local HTTP development continues to work.
 - **External Endpoint Validation**: Webhook and GPU worker URLs block loopback, private network ranges, and cloud metadata endpoints before issuing outbound requests.
 
 ## 3. Five-Modality Capability Honesty & AI Lecturer Engine
@@ -50,10 +57,17 @@ The platform maintains strict honesty across all 5 production modalities (`serve
 | **Facial Lip-Sync** | — | `SADTALKER_ENDPOINT`, `MUSETALK_ENDPOINT`, `HEYGEN_API_KEY` | Explicitly reports **Provider Not Configured** and renders framed Presenter PiP (`has_real_lipsync: false`) |
 | **Generative Lecturer Video** | — | `WAN_VIDEO_ENDPOINT`, `LTX_VIDEO_ENDPOINT`, or opt-in `gemini-omni-1.2-flash` (`ENABLE_PAID_GEMINI_MODELS=true` + explicit per-render consent) | Explicitly reports **Provider Not Configured**; never silently triggers paid APIs |
 
+### Deterministic smartboard visuals
+
+- Scene equations are parsed by KaTeX into MathML, laid out as an SVG overlay, rasterized by FFmpeg, and composited into the exported MP4. Fractions, superscripts/subscripts, square roots, fenced expressions, and ordinary inline rows are supported; unsupported or invalid TeX fails the render instead of silently appearing as raw source.
+- Code scenes display a bounded, syntax-colored listing with line numbers. Highlighting advances through code lines over the measured narration interval; scene bullet points provide the accompanying explanation.
+- Text, SVG, image, and FFmpeg filter inputs are generated from data rather than evaluated as shell commands. This local renderer does not claim generated scientific illustrations, arbitrary charts, or realistic lecturer animation.
+
 ## 4. Video Production Synchronization Guarantees
 
 - **Speech-Matched Duration**: Each scene's duration matches the probed duration of its synthesized narration track (`durationSec + 0.35s` padding) so narration is never clipped.
 - **Drift-Free Subtitles**: Exported `.srt` timestamps are built directly from `ffprobe`-measured rendered clip durations, keeping subtitles aligned across multi-scene lessons.
+- **Narration-Synchronized Code Walkthrough**: Syntax highlighting steps through scene code lines during the actual narration interval; exported subtitles and clip boundaries continue to use measured audio/video durations.
 - **Honest Code Validation**: `server/services/codeValidator.ts` executes real `g++ -fsyntax-only`, `python3 -m py_compile`, and `node --check`. If a required compiler/interpreter is missing, it returns `{ valid: false, unavailable: true }` instead of falsely reporting success.
 
 ## 5. Honest Naba Academy Integration Contract
@@ -64,9 +78,11 @@ The platform maintains strict honesty across all 5 production modalities (`serve
 
 ## 6. Local Development & Verification Commands
 
+The production Docker image runs as the unprivileged `node` user. Its `/app/data` and `/app/storage` mount points are created with owner-only access. For bind mounts, ensure the host directories are writable by the container's `node` UID; named Docker volumes are initialized from the image permissions.
+
 ### First-run authentication configuration
 
-For an existing seeded workspace, set a private `STUDIO_WORKSPACE_CLAIM_CODE` of at least 16 characters before starting the server. Keep it out of source control and share it only with the intended workspace owner. The owner uses it once to set their own account password. Alternatively, configure `STUDIO_ADMIN_PASSCODE` to use the managed default instructor login. Do not expose a server with neither option configured if the seeded workspace must be claimed.
+For an existing seeded workspace, set a private `STUDIO_WORKSPACE_CLAIM_CODE` of at least 16 characters before starting the server. Keep it out of source control and share it only with the intended workspace owner. The owner uses it once to set their own account password. Alternatively, configure `STUDIO_ADMIN_PASSCODE` to enable the managed default workspace administrator login; that configured account receives the admin role for protected administration, including lecturer-consent review. Do not expose a server with neither option configured if the seeded workspace must be claimed.
 
 ```bash
 # Prerequisites: Node.js 24 LTS, Bun 1.4.5, and FFmpeg

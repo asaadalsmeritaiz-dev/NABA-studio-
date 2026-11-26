@@ -61,6 +61,8 @@ export interface Lecturer {
   is_custom: number;
   consent_verified: number;
   consent_note: string | null;
+  consent_approved_by?: string | null;
+  consent_approved_at?: string | null;
   owner_user_id?: string | null;
   created_at: string;
 }
@@ -225,6 +227,54 @@ export interface ProjectSummary {
   total_duration_sec: number;
   export_count: number;
   latest_video_url?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseLesson {
+  id: string;
+  chapter_id: string;
+  sort_order: number;
+  project_id: string | null;
+  title: string;
+  title_ar: string;
+  learning_objectives: string[];
+  exercises: Array<{ prompt: string; solution: string; example_code: string }>;
+  assessment: Array<{
+    question: string;
+    options: string[];
+    correct_option_index: number;
+    explanation: string;
+  }>;
+  source_materials: Array<{ id: string; filename: string; source_checksum: string }>;
+  estimated_duration_sec: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseChapter {
+  id: string;
+  course_id: string;
+  sort_order: number;
+  title: string;
+  title_ar: string;
+  learning_objectives: string[];
+  lessons: CourseLesson[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseRecord {
+  id: string;
+  owner_user_id: string;
+  title: string;
+  title_ar: string;
+  subject: string;
+  description: string;
+  education_level: string;
+  language: StudioLocale;
+  status: 'draft' | 'active' | 'archived';
+  chapters: CourseChapter[];
   created_at: string;
   updated_at: string;
 }

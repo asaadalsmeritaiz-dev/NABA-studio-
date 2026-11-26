@@ -15,6 +15,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { CoursesPanel } from './CoursesPanel.tsx';
 import type {
   ClassroomEnvironment,
   ExportedVideo,
@@ -57,7 +58,7 @@ export function MyVideosPage({
   const s = t(locale);
   const isAr = locale === 'ar';
 
-  const [tab, setTab] = useState<'projects' | 'exports'>('projects');
+  const [tab, setTab] = useState<'projects' | 'exports' | 'courses'>('projects');
   const [query, setQuery] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [renamingProject, setRenamingProject] = useState<ProjectSummary | null>(null);
@@ -222,9 +223,20 @@ export function MyVideosPage({
           >
             {s.tabExports} ({filteredExports.length})
           </button>
+          <button
+            type="button"
+            onClick={() => setTab('courses')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+              tab === 'courses'
+                ? 'bg-[#78263F] text-[#F9F1F4]'
+                : 'text-[#C8B7C0] hover:text-[#F9F1F4]'
+            }`}
+          >
+            {s.tabCourses}
+          </button>
         </div>
 
-        <div className="relative w-full sm:w-72">
+        {tab !== 'courses' && <div className="relative w-full sm:w-72">
           <Search
             className={`w-4 h-4 text-[#C8B7C0]/70 absolute top-3 ${isAr ? 'right-3.5' : 'left-3.5'}`}
           />
@@ -237,7 +249,7 @@ export function MyVideosPage({
               isAr ? 'pr-10 pl-4' : 'pl-10 pr-4'
             }`}
           />
-        </div>
+        </div>}
       </div>
 
       {/* Projects Grid */}
@@ -569,6 +581,10 @@ export function MyVideosPage({
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'courses' && (
+        <CoursesPanel locale={locale} projects={projects} onOpenProject={onOpenProject} />
       )}
 
       {/* Video Preview Modal */}

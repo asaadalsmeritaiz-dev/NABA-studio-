@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import katex from 'katex';
 import type {
   ClassroomEnvironment,
   Lecturer,
@@ -22,8 +23,6 @@ import { generateLecturerSceneVideo } from '../providers/lecturerEngine.ts';
 import { isPathConfined } from '../services/security.ts';
 
 const execFileAsync = promisify(execFile);
-
-const MONO_FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
 
 export function getStorageRoot(): string {
   const dir = path.resolve(process.cwd(), process.env.STORAGE_DIR || 'storage');
@@ -130,6 +129,383 @@ function escapeFfmpegFilterPath(filePath: string): string {
   return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
 }
 
+type MathNode = {
+  tag: string;
+  text: string;
+  children: MathNode[];
+};
+
+type MathElement =
+  | { kind: 'text'; x: number; y: number; size: number; text: string; color: string }
+  | { kind: 'line'; x1: number; y1: number; x2: number; y2: number };
+
+type MathBox = {
+  width: number;
+  height: number;
+  depth: number;
+  elements: MathElement[];
+};
+
+function decodeMathMlText(text: string): string {
+  const namedEntities: Record<string, string> = {
+    ApplyFunction: '\u2061',
+    InvisibleTimes: '\u2062',
+    alpha: 'α',
+    beta: 'β',
+    gamma: 'γ',
+    delta: 'δ',
+    pi: 'π',
+    theta: 'θ',
+    le: '≤',
+    ge: '≥',
+    ne: '≠',
+    times: '×',
+    divide: '÷',
+    minus: '−',
+    plusmn: '±',
+    infin: '∞',
+    radic: '√',
+    hellip: '…',
+    nbsp: ' ',
+  };
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, value: string) => String.fromCodePoint(Number.parseInt(value, 16)))
+    .replace(/&#(\d+);/g, (_, value: string) => String.fromCodePoint(Number.parseInt(value, 10)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&([a-zA-Z]+);/g, (_, name: string) => namedEntities[name] ?? '');
+}
+
+function parseMathMl(markup: string): MathNode {
+  const start = markup.indexOf('<math');
+  const end = markup.lastIndexOf('</math>');
+  if (start < 0 || end < start) throw new Error('KaTeX did not produce a MathML expression.');
+
+  const root: MathNode = { tag: 'root', text: '', children: [] };
+  const stack = [root];
+  const mathMl = markup.slice(start, end + '</math>'.length);
+  for (const token of mathMl.match(/<[^>]+>|[^<]+/g) ?? []) {
+    if (token.startsWith('</')) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    if (token.startsWith('<')) {
+      const tag = token.match(/^<([a-zA-Z][\w:-]*)/)?.[1];
+      if (!tag || tag === 'annotation') continue;
+      const node: MathNode = { tag, text: '', children: [] };
+      stack.at(-1)?.children.push(node);
+      if (!token.endsWith('/>')) stack.push(node);
+      continue;
+    }
+    if (stack.at(-1)) stack.at(-1)!.text += decodeMathMlText(token);
+  }
+  return root;
+}
+
+function estimateMathTextWidth(text: string, fontSize: number): number {
+  return [...text].reduce((width, character) => {
+    if (/\s/.test(character)) return width + fontSize * 0.3;
+    if (/[MW@#%]/.test(character)) return width + fontSize * 0.82;
+    if (/[il.,:;|!'`]/.test(character)) return width + fontSize * 0.3;
+    return width + fontSize * 0.56;
+  }, 0);
+}
+
+function layoutMathNode(node: MathNode, fontSize: number): MathBox {
+  const children = node.children.filter((child) => child.tag !== 'annotation');
+  const elementColor = node.tag === 'mo' ? '#C49A6C' : '#F9F1F4';
+
+  if (['mi', 'mn', 'mo', 'mtext'].includes(node.tag)) {
+    const text = (node.text || children.map((child) => child.text).join('')).replace(/[\u2061\u2062]/g, '');
+    const width = estimateMathTextWidth(text, fontSize);
+    return {
+      width,
+      height: fontSize * 0.78,
+      depth: fontSize * 0.22,
+      elements: text
+        ? [{ kind: 'text', x: 0, y: 0, size: fontSize, text, color: elementColor }]
+        : [],
+    };
+  }
+
+  if (node.tag === 'mspace') {
+    return { width: fontSize * 0.35, height: 0, depth: 0, elements: [] };
+  }
+
+  if (node.tag === 'mfrac' && children.length >= 2) {
+    const numerator = layoutMathNode(children[0], fontSize * 0.82);
+    const denominator = layoutMathNode(children[1], fontSize * 0.82);
+    const width = Math.max(numerator.width, denominator.width) + fontSize * 0.42;
+    const numeratorX = (width - numerator.width) / 2;
+    const denominatorX = (width - denominator.width) / 2;
+    const numeratorY = -fontSize * 0.16 - numerator.depth;
+    const denominatorY = fontSize * 0.18 + denominator.height;
+    const place = (box: MathBox, x: number, y: number): MathElement[] =>
+      box.elements.map((element) =>
+        element.kind === 'text'
+          ? { ...element, x: element.x + x, y: element.y + y }
+          : { ...element, x1: element.x1 + x, y1: element.y1 + y, x2: element.x2 + x, y2: element.y2 + y },
+      );
+    return {
+      width,
+      height: -numeratorY + numerator.height,
+      depth: denominatorY + denominator.depth,
+      elements: [
+        ...place(numerator, numeratorX, numeratorY),
+        ...place(denominator, denominatorX, denominatorY),
+        { kind: 'line', x1: 0, y1: 0, x2: width, y2: 0 },
+      ],
+    };
+  }
+
+  if (['msup', 'msub', 'msubsup'].includes(node.tag) && children.length >= 2) {
+    const base = layoutMathNode(children[0], fontSize);
+    const sub = node.tag === 'msub' || node.tag === 'msubsup' ? children[1] : undefined;
+    const sup = node.tag === 'msup' ? children[1] : node.tag === 'msubsup' ? children[2] : undefined;
+    const subBox = sub ? layoutMathNode(sub, fontSize * 0.68) : null;
+    const supBox = sup ? layoutMathNode(sup, fontSize * 0.68) : null;
+    const scriptX = base.width - fontSize * 0.04;
+    const scriptY = supBox ? -fontSize * 0.55 : 0;
+    const scriptElements: MathElement[] = supBox
+      ? supBox.elements.map((element) =>
+          element.kind === 'text'
+            ? { ...element, x: element.x + scriptX, y: element.y + scriptY }
+            : {
+                ...element,
+                x1: element.x1 + scriptX,
+                y1: element.y1 + scriptY,
+                x2: element.x2 + scriptX,
+                y2: element.y2 + scriptY,
+              },
+        )
+      : [];
+    if (subBox) {
+      scriptElements.push(
+        ...subBox.elements.map((element) =>
+          element.kind === 'text'
+            ? { ...element, x: element.x + scriptX, y: element.y + fontSize * 0.38 }
+            : {
+                ...element,
+                x1: element.x1 + scriptX,
+                y1: element.y1 + fontSize * 0.38,
+                x2: element.x2 + scriptX,
+                y2: element.y2 + fontSize * 0.38,
+              },
+        ),
+      );
+    }
+    return {
+      width: base.width + Math.max(subBox?.width ?? 0, supBox?.width ?? 0),
+      height: Math.max(base.height, supBox ? fontSize * 0.55 + supBox.height : 0),
+      depth: Math.max(base.depth, subBox ? fontSize * 0.38 + subBox.depth : 0),
+      elements: [...base.elements, ...scriptElements],
+    };
+  }
+
+  if (node.tag === 'msqrt' && children.length) {
+    const radicand = layoutMathNode(children[0], fontSize);
+    const rootWidth = fontSize * 0.68;
+    return {
+      width: rootWidth + radicand.width,
+      height: radicand.height + fontSize * 0.1,
+      depth: radicand.depth,
+      elements: [
+        { kind: 'text', x: 0, y: 0, size: fontSize * 1.12, text: '√', color: '#C49A6C' },
+        ...radicand.elements.map((element) =>
+          element.kind === 'text'
+            ? { ...element, x: element.x + rootWidth, y: element.y }
+            : {
+                ...element,
+                x1: element.x1 + rootWidth,
+                y1: element.y1,
+                x2: element.x2 + rootWidth,
+                y2: element.y2,
+              },
+        ),
+        {
+          kind: 'line',
+          x1: rootWidth,
+          y1: -radicand.height - fontSize * 0.06,
+          x2: rootWidth + radicand.width,
+          y2: -radicand.height - fontSize * 0.06,
+        },
+      ],
+    };
+  }
+
+  if (node.tag === 'mfenced') {
+    const inner = layoutMathRow(children, fontSize);
+    const fence = fontSize * 0.45;
+    return {
+      ...inner,
+      width: inner.width + fence * 2,
+      elements: [
+        { kind: 'text', x: 0, y: 0, size: fontSize, text: '(', color: '#C49A6C' },
+        ...inner.elements.map((element) =>
+          element.kind === 'text'
+            ? { ...element, x: element.x + fence }
+            : {
+                ...element,
+                x1: element.x1 + fence,
+                x2: element.x2 + fence,
+              },
+        ),
+        { kind: 'text', x: fence + inner.width, y: 0, size: fontSize, text: ')', color: '#C49A6C' },
+      ],
+    };
+  }
+
+  if (node.tag === 'mtable') {
+    const rows = children.map((row) => layoutMathRow(row.children, fontSize));
+    const cellGap = fontSize * 0.5;
+    const rowGap = fontSize * 0.2;
+    const columnWidths: number[] = [];
+    for (const row of children) {
+      row.children.forEach((cell, index) => {
+        columnWidths[index] = Math.max(columnWidths[index] ?? 0, layoutMathNode(cell, fontSize).width);
+      });
+    }
+    const rowHeight = Math.max(...rows.map((row) => row.height + row.depth), fontSize);
+    const width = columnWidths.reduce((sum, column) => sum + column, 0) + cellGap * Math.max(0, columnWidths.length - 1);
+    const elements: MathElement[] = [];
+    rows.forEach((row, rowIndex) => {
+      const offsetY = rowIndex * (rowHeight + rowGap);
+      let offsetX = 0;
+      row.elements.forEach((element) => {
+        elements.push(
+          element.kind === 'text'
+            ? { ...element, x: element.x + offsetX, y: element.y + offsetY }
+            : {
+                ...element,
+                x1: element.x1 + offsetX,
+                y1: element.y1 + offsetY,
+                x2: element.x2 + offsetX,
+                y2: element.y2 + offsetY,
+              },
+        );
+      });
+      offsetX = width + cellGap;
+    });
+    return {
+      width,
+      height: rowHeight * 0.8,
+      depth: (rows.length - 1) * (rowHeight + rowGap) + rowHeight * 0.2,
+      elements,
+    };
+  }
+
+  return layoutMathRow(children, fontSize);
+}
+
+function layoutMathRow(nodes: MathNode[], fontSize: number): MathBox {
+  const boxes = nodes.map((node) => layoutMathNode(node, fontSize));
+  let x = 0;
+  const elements: MathElement[] = [];
+  let height = 0;
+  let depth = 0;
+  for (const box of boxes) {
+    height = Math.max(height, box.height);
+    depth = Math.max(depth, box.depth);
+    elements.push(
+      ...box.elements.map((element) =>
+        element.kind === 'text'
+          ? { ...element, x: element.x + x }
+          : { ...element, x1: element.x1 + x, x2: element.x2 + x },
+      ),
+    );
+    x += box.width;
+  }
+  return { width: x, height, depth, elements };
+}
+
+function escapeSvgText(text: string): string {
+  return text
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildEquationSvg(latex: string, width: number, height: number): string {
+  const markup = katex.renderToString(latex, {
+    output: 'mathml',
+    throwOnError: true,
+    strict: 'error',
+    trust: false,
+    maxExpand: 1000,
+    maxSize: 20,
+  });
+  const tree = parseMathMl(markup);
+  const mathNode = tree.children[0]?.children[0] ?? tree.children[0];
+  if (!mathNode) throw new Error('KaTeX produced an empty equation.');
+  const box = layoutMathNode(mathNode, 40);
+  const contentHeight = Math.max(1, box.height + box.depth);
+  const scale = Math.min(1, (width - 16) / Math.max(1, box.width), (height - 12) / contentHeight);
+  const offsetX = (width - box.width * scale) / 2;
+  const baseline = (height - contentHeight * scale) / 2 + box.height * scale;
+  const elements = box.elements
+    .map((element) => {
+      if (element.kind === 'line') {
+        return `<line x1="${element.x1}" y1="${element.y1}" x2="${element.x2}" y2="${element.y2}" stroke="#C49A6C" stroke-width="2"/>`;
+      }
+      return `<text x="${element.x}" y="${element.y}" font-family="DejaVu Sans" font-size="${element.size}" fill="${element.color}">${escapeSvgText(element.text)}</text>`;
+    })
+    .join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g transform="translate(${offsetX} ${baseline}) scale(${scale})">${elements}</g></svg>`;
+}
+
+async function renderEquationPng(latex: string, workDir: string, sceneIndex: number, width: number, height: number): Promise<string> {
+  const svgPath = path.join(workDir, `equation_${sceneIndex + 1}.svg`);
+  const pngPath = path.join(workDir, `equation_${sceneIndex + 1}.png`);
+  fs.writeFileSync(svgPath, buildEquationSvg(latex, width, height), 'utf8');
+  await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-i', svgPath, '-frames:v', '1', pngPath], {
+    timeout: 10_000,
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  return pngPath;
+}
+
+function highlightCodeLine(line: string, active: boolean): string {
+  const colors: Record<string, string> = {
+    plain: '&H00F4F1F9&',
+    keyword: '&H00EA84AC&',
+    string: '&H006FCAB9&',
+    number: '&H006C9AC4&',
+    comment: '&H00C0B7C8&',
+    operator: '&H00D5C2D0&',
+  };
+  const keywords = new Set([
+    'alignas', 'auto', 'bool', 'break', 'case', 'char', 'class', 'const', 'constexpr',
+    'continue', 'cout', 'cin', 'default', 'do', 'double', 'else', 'enum', 'false', 'float',
+    'for', 'if', 'include', 'int', 'long', 'main', 'namespace', 'new', 'nullptr', 'private',
+    'public', 'return', 'short', 'signed', 'sizeof', 'static', 'std', 'struct', 'switch',
+    'true', 'using', 'void', 'while',
+  ]);
+  const matches = line.match(/\/\/.*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_]\w*\b|\s+|[^\s]/g) ?? [];
+  return matches
+    .map((token) => {
+      const color = token.startsWith('//')
+        ? colors.comment
+        : token.startsWith('"') || token.startsWith("'")
+          ? colors.string
+          : /^\d/.test(token)
+            ? colors.number
+            : keywords.has(token)
+              ? colors.keyword
+              : /^[^\w\s]/.test(token)
+                ? colors.operator
+                : colors.plain;
+      const assText = sanitizeAssText(token).replace(/\t/g, '\\h\\h\\h\\h').replace(/ /g, '\\h');
+      return `{\\c${active ? '&H006C9AC4&' : color}}${assText}`;
+    })
+    .join('');
+}
+
 function buildSceneAssScript(params: {
   scene: SceneRecord;
   sceneIndex: number;
@@ -143,6 +519,10 @@ function buildSceneAssScript(params: {
   hasRealLipSync: boolean;
   hasGenerativeVideo: boolean;
   isPortrait: boolean;
+  codeBoxX: number;
+  codeBoxY: number;
+  codeFontSize: number;
+  codeLineCount: number;
 }): string {
   const {
     scene,
@@ -157,6 +537,10 @@ function buildSceneAssScript(params: {
     hasRealLipSync,
     hasGenerativeVideo,
     isPortrait,
+    codeBoxX,
+    codeBoxY,
+    codeFontSize,
+    codeLineCount,
   } = params;
   const isRtl = language === 'ar';
   const endTs = formatAssTime(clipDurationSec);
@@ -205,6 +589,7 @@ function buildSceneAssScript(params: {
     `Style: PresenterName,Noto Kufi Arabic,${isPortrait ? 22 : 21},&H00F4F1F9,&H00F4F1F9,&H00150E18,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,8,10,10,10,1`,
     `Style: PresenterSub,Noto Sans Arabic,${isPortrait ? 16 : 15},&H006C9AC4,&H006C9AC4,&H00150E18,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,10,10,10,1`,
     `Style: Subtitle,Noto Sans Arabic,${isPortrait ? 28 : 27},&H00FFFFFF,&H00FFFFFF,&H00150E18,&H80000000,-1,0,0,0,100,100,0,0,1,1.5,0,2,48,48,36,1`,
+    `Style: Code,DejaVu Sans Mono,${codeFontSize},&H00F4F1F9,&H00F4F1F9,&H00150E18,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
@@ -223,7 +608,7 @@ function buildSceneAssScript(params: {
     );
 
     const bullets = scene.bullet_points.slice(0, hasCode ? 2 : 4);
-    const bulletStartY = hasCode ? 850 : hasEq ? 640 : 560;
+    const bulletStartY = hasCode ? (hasEq ? 882 : 850) : hasEq ? 640 : 560;
     const bulletLineGap = hasCode ? 56 : 74;
     bullets.forEach((b, i) => {
       const wrapped = wrapTextLines(b, isRtl ? 34 : 38).slice(0, 2).join('\\N');
@@ -244,8 +629,8 @@ function buildSceneAssScript(params: {
     );
 
     const bullets = scene.bullet_points.slice(0, hasCode ? 2 : 4);
-    const bulletStartY = hasCode ? 454 : hasEq ? 286 : 196;
-    const bulletLineGap = hasCode ? 44 : 62;
+    const bulletStartY = hasCode ? (hasEq ? 500 : 454) : hasEq ? 286 : 196;
+    const bulletLineGap = hasCode ? (hasEq ? 32 : 44) : 62;
     bullets.forEach((b, i) => {
       const wrapped = wrapTextLines(b, isRtl ? 54 : 60).slice(0, 2).join('\\N');
       const y = bulletStartY + i * bulletLineGap;
@@ -273,6 +658,29 @@ function buildSceneAssScript(params: {
       lines.push(
         `Dialogue: 4,${sStart},${sEnd},Subtitle,,0,0,0,,{\\an2\\pos(${subPosX},${subPosY})}${sanitizeAssText(chunk)}`,
       );
+    });
+  }
+
+  if (hasCode && codeLineCount > 0) {
+    const maxLines = isPortrait ? 9 : 8;
+    const linesForCode = scene.code_snippet.split(/\r?\n/).slice(0, maxLines);
+    const lineHeight = codeFontSize + 4;
+    const stepDuration = Math.max(0.35, speechDurationSec / linesForCode.length);
+    const codeStartY = isPortrait ? codeBoxY + 18 : codeBoxY + 18;
+    linesForCode.forEach((line, lineIndex) => {
+      const lineY = codeStartY + lineIndex * lineHeight;
+      const lineNumber = String(lineIndex + 1).padStart(2, ' ');
+      const styledLine = highlightCodeLine(line.slice(0, isPortrait ? 48 : 70), false);
+      lines.push(
+        `Dialogue: 5,0:00:00.00,${endTs},Code,,0,0,0,,{\\an7\\pos(${codeBoxX + 18},${lineY})}{\\c&H00C0B7C8&}${lineNumber} │ ${styledLine}`,
+      );
+      const highlightStart = lineIndex * stepDuration;
+      const highlightEnd = Math.min(speechDurationSec, (lineIndex + 1) * stepDuration);
+      if (highlightEnd > highlightStart) {
+        lines.push(
+          `Dialogue: 6,${formatAssTime(highlightStart)},${formatAssTime(highlightEnd)},Code,,0,0,0,,{\\an7\\pos(${codeBoxX + 18},${lineY})}{\\b1}${lineNumber} │ ${highlightCodeLine(line.slice(0, isPortrait ? 48 : 70), true)}`,
+        );
+      }
     });
   }
 
@@ -633,6 +1041,18 @@ export async function renderProjectVideo(params: {
     const audioMeta = sceneAudioOutputs[i];
     const dur = audioMeta.durationSec;
     const presenterVideo = presenterVideoClips.get(scene.id);
+    const hasCode = scene.code_snippet.trim().length > 0;
+    const hasEq = scene.equation_latex.trim().length > 0;
+    const boardX = dims.isPortrait ? 36 : isRtl ? 364 : 48;
+    const boardY = dims.isPortrait ? 444 : 92;
+    const boardW = dims.isPortrait ? 648 : 868;
+    const boardH = dims.isPortrait ? 632 : 472;
+    const codeBoxX = boardX + 24;
+    const codeBoxY = dims.isPortrait ? boardY + 96 : boardY + 92;
+    const codeFontSize = dims.isPortrait ? 18 : 20;
+    const codeLineCount = hasCode
+      ? scene.code_snippet.split(/\r?\n/).slice(0, dims.isPortrait ? 9 : 8).length
+      : 0;
 
     const assPath = path.join(workDir, `scene_${i + 1}.ass`);
     const assContent = buildSceneAssScript({
@@ -648,18 +1068,16 @@ export async function renderProjectVideo(params: {
       hasRealLipSync: presenterVideo?.kind === 'lipsync',
       hasGenerativeVideo: presenterVideo?.kind === 'generative',
       isPortrait: dims.isPortrait,
+      codeBoxX,
+      codeBoxY,
+      codeFontSize,
+      codeLineCount,
     });
     fs.writeFileSync(assPath, assContent, 'utf8');
 
     const clipPath = path.join(workDir, `clip_${i + 1}.mp4`);
-    const hasCode = scene.code_snippet.trim().length > 0;
-    const hasEq = scene.equation_latex.trim().length > 0;
 
     // Layout coordinates computed in base design space (1280x720 or 720x1280), then scaled if 1080p
-    const boardX = dims.isPortrait ? 36 : isRtl ? 364 : 48;
-    const boardY = dims.isPortrait ? 444 : 92;
-    const boardW = dims.isPortrait ? 648 : 868;
-    const boardH = dims.isPortrait ? 632 : 472;
     const pipX = dims.isPortrait ? 240 : isRtl ? 48 : 952;
     const pipY = dims.isPortrait ? 104 : 122;
     const pipSize = dims.isPortrait ? 240 : 280;
@@ -680,6 +1098,23 @@ export async function renderProjectVideo(params: {
       args.push('-stream_loop', '-1', '-t', dur.toFixed(2), '-i', presenterVideo.path);
     } else if (lecturerPath) {
       args.push('-loop', '1', '-t', dur.toFixed(2), '-i', lecturerPath);
+    }
+    const equationInputIndex = hasPresenterInput ? 3 : 2;
+    let equationPosition: { x: number; y: number } | null = null;
+    if (hasEq) {
+      const eqBoxX = boardX + 24;
+      const eqBoxY = hasCode ? (dims.isPortrait ? boardY + 334 : boardY + 322) : boardY + 98;
+      const eqBoxW = boardW - 48;
+      const eqBoxH = hasCode ? 82 : 92;
+      const equationPngPath = await renderEquationPng(
+        scene.equation_latex.trim(),
+        workDir,
+        i,
+        eqBoxW - 32,
+        eqBoxH - 16,
+      );
+      args.push('-loop', '1', '-t', dur.toFixed(2), '-i', equationPngPath);
+      equationPosition = { x: eqBoxX + 16, y: eqBoxY + 8 };
     }
 
     const filterParts: string[] = [];
@@ -703,43 +1138,41 @@ export async function renderProjectVideo(params: {
       `drawbox=x=0:y=${subBarY}:w=${baseW}:h=${subBarH}:color=0x180E15@0.94:t=fill`;
 
     if (hasCode) {
-      const codeFile = path.join(workDir, `code_${i + 1}.txt`);
-      const codeLines = scene.code_snippet.split(/\r?\n/).slice(0, dims.isPortrait ? 10 : 12).join('\n');
-      fs.writeFileSync(codeFile, codeLines, 'utf8');
-      const codeBoxX = boardX + 24;
-      const codeBoxY = dims.isPortrait ? boardY + 96 : boardY + 92;
       const codeBoxW = boardW - 48;
-      const codeBoxH = dims.isPortrait ? 286 : 254;
+      const codeBoxH = dims.isPortrait ? 230 : 220;
       panelFilter +=
         `,drawbox=x=${codeBoxX}:y=${codeBoxY}:w=${codeBoxW}:h=${codeBoxH}:color=0x140911@0.98:t=fill,` +
-        `drawbox=x=${codeBoxX}:y=${codeBoxY}:w=${codeBoxW}:h=${codeBoxH}:color=0x78263F@0.75:t=2,` +
-        `drawtext=fontfile='${MONO_FONT_PATH}':textfile='${escapeFfmpegFilterPath(codeFile)}':fontcolor=0xF9F1F4:fontsize=${dims.isPortrait ? 18 : 20}:line_spacing=7:x=${codeBoxX + 18}:y=${codeBoxY + 18}`;
+        `drawbox=x=${codeBoxX}:y=${codeBoxY}:w=${codeBoxW}:h=${codeBoxH}:color=0x78263F@0.75:t=2`;
     }
 
     if (hasEq) {
-      const eqFile = path.join(workDir, `eq_${i + 1}.txt`);
-      fs.writeFileSync(eqFile, scene.equation_latex.trim(), 'utf8');
       const eqBoxX = boardX + 24;
-      const eqBoxY = hasCode ? (dims.isPortrait ? boardY + 394 : boardY + 354) : boardY + 98;
+      const eqBoxY = hasCode ? (dims.isPortrait ? boardY + 334 : boardY + 322) : boardY + 98;
       const eqBoxW = boardW - 48;
-      const eqBoxH = 66;
+      const eqBoxH = hasCode ? 82 : 92;
       panelFilter +=
         `,drawbox=x=${eqBoxX}:y=${eqBoxY}:w=${eqBoxW}:h=${eqBoxH}:color=0x341A29@0.96:t=fill,` +
-        `drawbox=x=${eqBoxX}:y=${eqBoxY}:w=${eqBoxW}:h=${eqBoxH}:color=0xC49A6C@0.65:t=2,` +
-        `drawtext=fontfile='${MONO_FONT_PATH}':textfile='${escapeFfmpegFilterPath(eqFile)}':fontcolor=0xF9F1F4:fontsize=${dims.isPortrait ? 21 : 24}:x=${eqBoxX + 24}:y=${eqBoxY + 20}`;
+        `drawbox=x=${eqBoxX}:y=${eqBoxY}:w=${eqBoxW}:h=${eqBoxH}:color=0xC49A6C@0.65:t=2`;
     }
 
     panelFilter += `[panels]`;
     filterParts.push(panelFilter);
 
     let afterOverlay = '[panels]';
+    if (equationPosition) {
+      filterParts.push(`[${equationInputIndex}:v]format=rgba[equation]`);
+      filterParts.push(
+        `[panels][equation]overlay=x=${equationPosition.x}:y=${equationPosition.y}:shortest=1[withEquation]`,
+      );
+      afterOverlay = '[withEquation]';
+    }
     if (hasPresenterInput) {
       const nameCardH = 74;
       filterParts.push(
         `[2:v]scale=${pipSize}:${pipSize}:force_original_aspect_ratio=increase,crop=${pipSize}:${pipSize},fps=24[pip]`,
       );
       filterParts.push(
-        `[panels]drawbox=x=${pipX - 4}:y=${pipY - 4}:w=${pipSize + 8}:h=${pipSize + 8}:color=0xC49A6C@0.90:t=fill,` +
+        `${afterOverlay}drawbox=x=${pipX - 4}:y=${pipY - 4}:w=${pipSize + 8}:h=${pipSize + 8}:color=0xC49A6C@0.90:t=fill,` +
           `drawbox=x=${pipX - 4}:y=${pipY + pipSize + 10}:w=${pipSize + 8}:h=${nameCardH}:color=0x3B0D1E@0.95:t=fill,` +
           `drawbox=x=${pipX - 4}:y=${pipY + pipSize + 10}:w=${pipSize + 8}:h=${nameCardH}:color=0x654354@0.8:t=1[pbg]`,
       );

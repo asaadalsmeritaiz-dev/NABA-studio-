@@ -5,6 +5,11 @@ import { extractText } from 'unpdf';
 
 const ALLOWED_EXTENSIONS = new Set(['.txt', '.md', '.pdf', '.docx', '.pptx']);
 export const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024; // 15 MB
+const MAX_ARCHIVE_ENTRIES = 1000;
+const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRY_BYTES = 32 * 1024 * 1024;
+const ZIP_EOCD_SIGNATURE = 0x06054b50;
+const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 
 export interface ParsedDocument {
   extractedText: string;
@@ -25,6 +30,84 @@ function stripXmlTags(xml: string): string {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function validateZipArchiveLimits(buffer: Buffer): void {
+  const searchStart = Math.max(0, buffer.length - 22 - 0xffff);
+  let eocdOffset = -1;
+  for (let offset = buffer.length - 22; offset >= searchStart; offset--) {
+    if (buffer.readUInt32LE(offset) === ZIP_EOCD_SIGNATURE) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0 || eocdOffset + 22 > buffer.length) {
+    throw new Error('Invalid DOCX/PPTX archive: ZIP directory record is missing.');
+  }
+
+  const diskNumber = buffer.readUInt16LE(eocdOffset + 4);
+  const directoryDisk = buffer.readUInt16LE(eocdOffset + 6);
+  const entriesOnDisk = buffer.readUInt16LE(eocdOffset + 8);
+  const entryCount = buffer.readUInt16LE(eocdOffset + 10);
+  const directorySize = buffer.readUInt32LE(eocdOffset + 12);
+  const directoryOffset = buffer.readUInt32LE(eocdOffset + 16);
+  const commentLength = buffer.readUInt16LE(eocdOffset + 20);
+  if (
+    diskNumber !== 0 ||
+    directoryDisk !== 0 ||
+    entriesOnDisk !== entryCount ||
+    entryCount === 0xffff ||
+    directorySize === 0xffffffff ||
+    directoryOffset === 0xffffffff ||
+    eocdOffset + 22 + commentLength > buffer.length ||
+    directoryOffset + directorySize > eocdOffset
+  ) {
+    throw new Error('Unsupported or malformed DOCX/PPTX archive directory.');
+  }
+  if (entryCount > MAX_ARCHIVE_ENTRIES) {
+    throw new Error(`DOCX/PPTX archive contains too many entries (maximum ${MAX_ARCHIVE_ENTRIES}).`);
+  }
+
+  let totalUncompressedBytes = 0;
+  let offset = directoryOffset;
+  const directoryEnd = directoryOffset + directorySize;
+  for (let index = 0; index < entryCount; index++) {
+    if (
+      offset + 46 > directoryEnd ||
+      buffer.readUInt32LE(offset) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE
+    ) {
+      throw new Error('Malformed DOCX/PPTX archive directory entry.');
+    }
+    const flags = buffer.readUInt16LE(offset + 8);
+    const compressionMethod = buffer.readUInt16LE(offset + 10);
+    const compressedBytes = buffer.readUInt32LE(offset + 20);
+    const uncompressedBytes = buffer.readUInt32LE(offset + 24);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const entryCommentLength = buffer.readUInt16LE(offset + 32);
+    const nextOffset = offset + 46 + nameLength + extraLength + entryCommentLength;
+
+    if (nextOffset > directoryEnd || (flags & 0x1) !== 0) {
+      throw new Error('Encrypted or malformed DOCX/PPTX archive entries are not supported.');
+    }
+    if (compressionMethod !== 0 && compressionMethod !== 8) {
+      throw new Error('DOCX/PPTX archive uses an unsupported compression method.');
+    }
+    if (uncompressedBytes > MAX_ARCHIVE_ENTRY_BYTES) {
+      throw new Error('DOCX/PPTX archive entry exceeds the 32 MB extraction limit.');
+    }
+    totalUncompressedBytes += uncompressedBytes;
+    if (totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES) {
+      throw new Error('DOCX/PPTX archive exceeds the 64 MB total extraction limit.');
+    }
+    if (compressedBytes === 0 && uncompressedBytes > 0) {
+      throw new Error('Malformed DOCX/PPTX archive compression metadata.');
+    }
+    offset = nextOffset;
+  }
+  if (offset !== directoryEnd) {
+    throw new Error('Malformed DOCX/PPTX archive directory size.');
+  }
 }
 
 export function validateDocumentUpload(filename: string, buffer: Buffer): { ok: boolean; error?: string; ext?: string } {
@@ -50,6 +133,14 @@ export function validateDocumentUpload(filename: string, buffer: Buffer): { ok: 
     // ZIP magic bytes: PK\x03\x04
     if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
       return { ok: false, error: `Invalid ${ext.toUpperCase()} archive signature.` };
+    }
+    try {
+      validateZipArchiveLimits(buffer);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : `Invalid ${ext.toUpperCase()} archive.`,
+      };
     }
   }
 
