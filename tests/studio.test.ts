@@ -750,16 +750,23 @@ int main() {
     expect(unconsentedVid.provider).toBe('consent-gate');
   });
 
-  it('6. returns honest error when script generation is called without GEMINI_API_KEY (no fabricated scripts)', async () => {
+  it('6. generates an honest deterministic C++ fallback without GEMINI_API_KEY', async () => {
     const prevKey = process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_API_KEY;
     try {
       const res = await request(ctx.app)
         .post('/api/projects/proj-naba-cpp-variables-demo/script/generate')
         .set('Authorization', `Bearer ${primaryToken}`)
-        .send({ topic: 'C++ Pointers', target_duration_sec: 15 });
-      expect(res.status).toBe(503);
-      expect(res.body.error).toMatch(/GEMINI_API_KEY/i);
+        .send({ topic: 'C++ Variables and Data Types', target_duration_sec: 80 });
+      expect(res.status).toBe(200);
+      expect(res.body.provider).toBe('deterministic-local-fallback');
+      expect(res.body.project.scenes.length).toBeGreaterThanOrEqual(8);
+      expect(res.body.project.scenes.some((scene: { code_snippet: string }) =>
+        scene.code_snippet.includes('int age = 20'),
+      )).toBe(true);
+      expect(res.body.project.scenes.some((scene: { code_snippet: string }) =>
+        scene.code_snippet.includes('bool passed'),
+      )).toBe(true);
     } finally {
       if (prevKey !== undefined) process.env.GEMINI_API_KEY = prevKey;
     }

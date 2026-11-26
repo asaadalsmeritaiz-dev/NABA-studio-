@@ -52,7 +52,7 @@ The platform maintains strict honesty across all 5 production modalities (`serve
 | Modality | Local / Free Capability | External GPU / Paid Adapter | Unconfigured Behavior |
 | :--- | :--- | :--- | :--- |
 | **Smartboard & Video Assembly** | FFmpeg 1280×720 H.264/AAC + Arabic `libass`/HarfBuzz + fade-ins | — | Always active locally ($0) |
-| **Educational Scripts** | — | Gemini 4 Hydrogen (`gemini-4-hydrogen`) | Returns explicit 503 error if `GEMINI_API_KEY` missing (no fabricated scripts) |
+| **Educational Scripts** | Deterministic instructor-reviewable storyboard fallback, including C++ variables and basic subjects | Gemini 4 Hydrogen (`gemini-4-hydrogen`) | Builds a clearly labeled local fallback; never substitutes live AI facts or invented citations |
 | **Narration Speech (TTS)** | Offline cadence fallback (Mode A) | Gemini 3.8 Flash Lite (`gemini-3.8-flash-lite`) Arabic & English WAV | Clearly flags `has_real_tts: false` when offline |
 | **Facial Lip-Sync** | — | `SADTALKER_ENDPOINT`, `MUSETALK_ENDPOINT`, `HEYGEN_API_KEY` | Explicitly reports **Provider Not Configured** and renders framed Presenter PiP (`has_real_lipsync: false`) |
 | **Generative Lecturer Video** | — | `WAN_VIDEO_ENDPOINT`, `LTX_VIDEO_ENDPOINT`, or opt-in `gemini-omni-1.2-flash` (`ENABLE_PAID_GEMINI_MODELS=true` + explicit per-render consent) | Explicitly reports **Provider Not Configured**; never silently triggers paid APIs |
