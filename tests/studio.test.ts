@@ -130,6 +130,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
         expect(names.has('courses')).toBe(true);
         expect(names.has('course_chapters')).toBe(true);
         expect(names.has('course_lessons')).toBe(true);
+        expect(names.has('course_lesson_sources')).toBe(true);
 
         const mediaColumns = upgraded.db
           .prepare('PRAGMA table_info(media_tokens)')
@@ -148,6 +149,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
         expect(applied.map((row) => row.name)).toContain('004_session_bound_media_tokens.sql');
         expect(applied.map((row) => row.name)).toContain('005_admin_reviewed_lecturer_consent.sql');
         expect(applied.map((row) => row.name)).toContain('006_course_curriculum.sql');
+        expect(applied.map((row) => row.name)).toContain('007_course_lesson_assessments.sql');
       } finally {
         upgraded.close();
       }
@@ -177,6 +179,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       'courses',
       'course_chapters',
       'course_lessons',
+      'course_lesson_sources',
       'educational_materials',
       'scripts',
       'scenes',
@@ -329,6 +332,25 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
   });
 
   it('creates a persisted course curriculum and enforces ownership of courses and linked projects', async () => {
+    const primaryProject = await request(ctx.app)
+      .post('/api/projects')
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({
+        title: 'Source reference lesson',
+        subject: 'Computer science',
+        language: 'en',
+        lecturer_id: 'lec-tariq',
+        voice_id: 'voice-ar-tariq',
+        environment_id: 'env-coding-studio',
+      });
+    expect(primaryProject.status).toBe(201);
+    const materialUpload = await request(ctx.app)
+      .post(`/api/projects/${primaryProject.body.project.id}/materials`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .attach('file', Buffer.from('Integer variables store whole numbers.', 'utf8'), 'integer-notes.txt');
+    expect(materialUpload.status).toBe(201);
+    const materialId = materialUpload.body.material.id as string;
+
     const secondaryProject = await request(ctx.app)
       .post('/api/projects')
       .set('Authorization', `Bearer ${secondUserToken}`)
@@ -384,6 +406,25 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       .send({ title: 'Unauthorized link', project_id: secondaryProject.body.project.id });
     expect(foreignProjectLink.status).toBe(403);
 
+    const invalidAssessment = await request(ctx.app)
+      .post(`/api/courses/${courseId}/chapters/${chapterId}/lessons`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({
+        title: 'Invalid assessment',
+        assessment: [{ question: 'Choose a type', options: ['int', 'float'], correct_option_index: 2 }],
+      });
+    expect(invalidAssessment.status).toBe(400);
+
+    const invalidSource = await request(ctx.app)
+      .post(`/api/courses/${courseId}/chapters/${chapterId}/lessons`)
+      .set('Authorization', `Bearer ${primaryToken}`)
+      .send({
+        title: 'Invalid source',
+        project_id: primaryProject.body.project.id,
+        source_material_ids: ['material-from-another-project'],
+      });
+    expect(invalidSource.status).toBe(400);
+
     const lessonResponse = await request(ctx.app)
       .post(`/api/courses/${courseId}/chapters/${chapterId}/lessons`)
       .set('Authorization', `Bearer ${primaryToken}`)
@@ -391,14 +432,27 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
         title: 'Integer variables',
         title_ar: 'المتغيرات الصحيحة',
         learning_objectives: ['Declare an integer'],
+        exercises: [{ prompt: 'Declare an integer named age.' }],
+        assessment: [
+          {
+            question: 'Which type stores whole numbers?',
+            options: ['int', 'float', 'bool'],
+            correct_option_index: 0,
+            explanation: 'int stores integer values.',
+          },
+        ],
         estimated_duration_sec: 420,
-        project_id: 'proj-naba-cpp-variables-demo',
+        project_id: primaryProject.body.project.id,
+        source_material_ids: [materialId],
       });
     expect(lessonResponse.status).toBe(201);
     const lessonId = lessonResponse.body.lesson_id as string;
     expect(lessonResponse.body.course.chapters[0].lessons[0]).toMatchObject({
-      project_id: 'proj-naba-cpp-variables-demo',
+      project_id: primaryProject.body.project.id,
       estimated_duration_sec: 420,
+      exercises: [{ prompt: 'Declare an integer named age.' }],
+      assessment: [{ correct_option_index: 0 }],
+      source_materials: [{ id: materialId, filename: 'integer-notes.txt' }],
     });
 
     const updatedLesson = await request(ctx.app)
@@ -407,6 +461,7 @@ describe('Naba AI Video Studio — Comprehensive Security, Reliability & Pipelin
       .send({ learning_objectives: ['Explain integer storage'], project_id: null });
     expect(updatedLesson.status).toBe(200);
     expect(updatedLesson.body.course.chapters[0].lessons[0].project_id).toBeNull();
+    expect(updatedLesson.body.course.chapters[0].lessons[0].source_materials).toEqual([]);
 
     const updatedChapter = await request(ctx.app)
       .put(`/api/courses/${courseId}/chapters/${chapterId}`)

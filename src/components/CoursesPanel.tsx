@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { BookOpen, ExternalLink, Plus, Save, Trash2 } from 'lucide-react';
-import type { CourseRecord, ProjectSummary, StudioLocale } from '../types/studio.ts';
+import type { CourseRecord, EducationalMaterial, ProjectSummary, StudioLocale } from '../types/studio.ts';
 import { t } from '../i18n/strings.ts';
 import { studioApi } from '../lib/api.ts';
 
@@ -20,10 +20,25 @@ interface LessonDraft {
   objectives: string;
   duration: string;
   projectId: string;
+  exercises: string;
+  assessmentQuestion: string;
+  assessmentOptions: string;
+  correctOption: string;
+  sourceMaterialIds: string[];
 }
 
 const emptyChapterDraft = (): ChapterDraft => ({ title: '', objectives: '' });
-const emptyLessonDraft = (): LessonDraft => ({ title: '', objectives: '', duration: '300', projectId: '' });
+const emptyLessonDraft = (): LessonDraft => ({
+  title: '',
+  objectives: '',
+  duration: '300',
+  projectId: '',
+  exercises: '',
+  assessmentQuestion: '',
+  assessmentOptions: '',
+  correctOption: '1',
+  sourceMaterialIds: [],
+});
 
 function parseObjectives(value: string): string[] {
   return value
@@ -47,6 +62,8 @@ export function CoursesPanel({ locale, projects, onOpenProject }: Props) {
   >({});
   const [chapterDrafts, setChapterDrafts] = useState<Record<string, ChapterDraft>>({});
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
+  const [materialsByProject, setMaterialsByProject] = useState<Record<string, EducationalMaterial[]>>({});
+  const [materialsLoading, setMaterialsLoading] = useState<Record<string, boolean>>({});
 
   const loadCourses = useCallback(async () => {
     const response = await studioApi.listCourses();
@@ -138,16 +155,56 @@ export function CoursesPanel({ locale, projects, onOpenProject }: Props) {
   async function createLesson(event: FormEvent<HTMLFormElement>, courseId: string, chapterId: string) {
     event.preventDefault();
     const draft = lessonDrafts[chapterId] ?? emptyLessonDraft();
+    const assessmentOptions = parseObjectives(draft.assessmentOptions);
     const created = await execute(`lesson:${chapterId}`, () =>
       studioApi.createCourseLesson(courseId, chapterId, {
         title: draft.title.trim(),
         title_ar: draft.title.trim(),
         learning_objectives: parseObjectives(draft.objectives),
+        exercises: parseObjectives(draft.exercises).map((prompt) => ({
+          prompt,
+          solution: '',
+          example_code: '',
+        })),
+        assessment: draft.assessmentQuestion.trim()
+          ? [
+              {
+                question: draft.assessmentQuestion.trim(),
+                options: assessmentOptions,
+                correct_option_index: Number(draft.correctOption) - 1,
+                explanation: '',
+              },
+            ]
+          : [],
+        source_material_ids: draft.sourceMaterialIds,
         estimated_duration_sec: Number(draft.duration),
         project_id: draft.projectId || null,
       }),
     );
     if (created) setLessonDrafts((previous) => ({ ...previous, [chapterId]: emptyLessonDraft() }));
+  }
+
+  async function loadProjectMaterials(chapterId: string, projectId: string) {
+    setLessonDrafts((previous) => ({
+      ...previous,
+      [chapterId]: {
+        ...(previous[chapterId] ?? emptyLessonDraft()),
+        projectId,
+        sourceMaterialIds: [],
+      },
+    }));
+    if (!projectId) return;
+
+    setMaterialsLoading((previous) => ({ ...previous, [chapterId]: true }));
+    setError('');
+    try {
+      const response = await studioApi.getProject(projectId);
+      setMaterialsByProject((previous) => ({ ...previous, [projectId]: response.project.materials }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : s.courseLoadFailed);
+    } finally {
+      setMaterialsLoading((previous) => ({ ...previous, [chapterId]: false }));
+    }
   }
 
   const panelInputClass =
@@ -355,6 +412,23 @@ export function CoursesPanel({ locale, projects, onOpenProject }: Props) {
                               {lesson.learning_objectives.length > 0 && (
                                 <p className="mt-1 text-xs text-[#C8B7C0]">{lesson.learning_objectives.join(' · ')}</p>
                               )}
+                              {lesson.exercises.length > 0 && (
+                                <ul className="mt-1 list-inside list-disc text-xs text-[#C8B7C0]">
+                                  {lesson.exercises.map((exercise, index) => (
+                                    <li key={`${lesson.id}-exercise-${index}`}>{exercise.prompt}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {lesson.assessment.map((question) => (
+                                <p key={`${lesson.id}-${question.question}`} className="mt-1 text-xs text-[#C8B7C0]">
+                                  {question.question} · {question.options[question.correct_option_index]}
+                                </p>
+                              ))}
+                              {lesson.source_materials.length > 0 && (
+                                <p className="mt-1 text-xs text-[#C49A6C]">
+                                  {lesson.source_materials.map((source) => source.filename).join(' · ')}
+                                </p>
+                              )}
                             </div>
                             <div className="flex gap-2">
                               {lesson.project_id && (
@@ -437,15 +511,69 @@ export function CoursesPanel({ locale, projects, onOpenProject }: Props) {
                             />
                           </label>
                           <label className="space-y-1 text-xs text-[#C8B7C0]">
-                            <span>{s.lessonProject}</span>
-                            <select
-                              value={lessonDraft.projectId}
+                            <span>{s.lessonExercises}</span>
+                            <textarea
+                              rows={2}
+                              value={lessonDraft.exercises}
                               onChange={(event) =>
                                 setLessonDrafts((previous) => ({
                                   ...previous,
-                                  [chapter.id]: { ...lessonDraft, projectId: event.target.value },
+                                  [chapter.id]: { ...lessonDraft, exercises: event.target.value },
                                 }))
                               }
+                              className={panelInputClass}
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-[#C8B7C0]">
+                            <span>{s.assessmentQuestion}</span>
+                            <input
+                              maxLength={600}
+                              value={lessonDraft.assessmentQuestion}
+                              onChange={(event) =>
+                                setLessonDrafts((previous) => ({
+                                  ...previous,
+                                  [chapter.id]: { ...lessonDraft, assessmentQuestion: event.target.value },
+                                }))
+                              }
+                              className={panelInputClass}
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-[#C8B7C0]">
+                            <span>{s.assessmentOptions}</span>
+                            <textarea
+                              rows={3}
+                              value={lessonDraft.assessmentOptions}
+                              onChange={(event) =>
+                                setLessonDrafts((previous) => ({
+                                  ...previous,
+                                  [chapter.id]: { ...lessonDraft, assessmentOptions: event.target.value },
+                                }))
+                              }
+                              className={panelInputClass}
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-[#C8B7C0]">
+                            <span>{s.assessmentCorrectIndex}</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={6}
+                              step={1}
+                              value={lessonDraft.correctOption}
+                              onChange={(event) =>
+                                setLessonDrafts((previous) => ({
+                                  ...previous,
+                                  [chapter.id]: { ...lessonDraft, correctOption: event.target.value },
+                                }))
+                              }
+                              className={panelInputClass}
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-[#C8B7C0]">
+                            <span>{s.lessonProject}</span>
+                            <select
+                              value={lessonDraft.projectId}
+                              onChange={(event) => void loadProjectMaterials(chapter.id, event.target.value)}
                               className={panelInputClass}
                             >
                               <option value="">{isAr ? 'بدون مشروع مرتبط' : 'No linked project'}</option>
@@ -454,6 +582,39 @@ export function CoursesPanel({ locale, projects, onOpenProject }: Props) {
                               ))}
                             </select>
                           </label>
+                          {lessonDraft.projectId && (
+                            <fieldset className="space-y-2 sm:col-span-2">
+                              <legend className="text-xs font-semibold text-[#C8B7C0]">{s.lessonSources}</legend>
+                              {materialsLoading[chapter.id] ? (
+                                <p className="text-xs text-[#C8B7C0]">{s.editorSaving}</p>
+                              ) : (materialsByProject[lessonDraft.projectId] ?? []).length === 0 ? (
+                                <p className="text-xs text-[#C8B7C0]">{s.noSourceFiles}</p>
+                              ) : (
+                                <div className="flex flex-wrap gap-3">
+                                  {(materialsByProject[lessonDraft.projectId] ?? []).map((material) => (
+                                    <label key={material.id} className="inline-flex items-center gap-2 text-xs text-[#F9F1F4]">
+                                      <input
+                                        type="checkbox"
+                                        checked={lessonDraft.sourceMaterialIds.includes(material.id)}
+                                        onChange={(event) =>
+                                          setLessonDrafts((previous) => ({
+                                            ...previous,
+                                            [chapter.id]: {
+                                              ...lessonDraft,
+                                              sourceMaterialIds: event.target.checked
+                                                ? [...lessonDraft.sourceMaterialIds, material.id]
+                                                : lessonDraft.sourceMaterialIds.filter((id) => id !== material.id),
+                                            },
+                                          }))
+                                        }
+                                      />
+                                      {material.filename}
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </fieldset>
+                          )}
                           <button
                             type="submit"
                             disabled={busy !== null}

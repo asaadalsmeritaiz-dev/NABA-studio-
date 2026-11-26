@@ -180,6 +180,14 @@ export const studioApi = {
       title: string;
       title_ar?: string;
       learning_objectives: string[];
+      exercises?: Array<{ prompt: string; solution?: string; example_code?: string }>;
+      assessment?: Array<{
+        question: string;
+        options: string[];
+        correct_option_index: number;
+        explanation?: string;
+      }>;
+      source_material_ids?: string[];
       estimated_duration_sec?: number;
       project_id?: string | null;
     },
@@ -200,6 +208,14 @@ export const studioApi = {
       title?: string;
       title_ar?: string;
       learning_objectives?: string[];
+      exercises?: Array<{ prompt: string; solution?: string; example_code?: string }>;
+      assessment?: Array<{
+        question: string;
+        options: string[];
+        correct_option_index: number;
+        explanation?: string;
+      }>;
+      source_material_ids?: string[];
       estimated_duration_sec?: number;
       project_id?: string | null;
     },

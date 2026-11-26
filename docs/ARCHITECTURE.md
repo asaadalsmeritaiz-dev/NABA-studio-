@@ -27,7 +27,7 @@
 └───────────────────────────────┴───────────────────────────────────────────┘
 ```
 
-The My Videos workspace includes a course manager backed by `courses`, `course_chapters`, and `course_lessons`. Lessons can store learning objectives, estimated duration, and an ownership-checked link to an editable video project. Course, chapter, lesson, and project data remain separate so deleting a curriculum does not delete its video projects.
+The My Videos workspace includes a course manager backed by `courses`, `course_chapters`, and `course_lessons`. Lessons store learning objectives, exercise prompts, validated multiple-choice questions, estimated duration, source-document links, and an ownership-checked link to an editable video project. Source documents must belong to the linked project; deleting that project cascades its material references but preserves the course and lesson. Course, chapter, lesson, and project data remain separate so deleting a curriculum does not delete its video projects.
 
 ## 2. Authentication, Ownership & Security Architecture
 

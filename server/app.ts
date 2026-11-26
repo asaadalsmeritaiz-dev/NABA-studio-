@@ -146,6 +146,23 @@ const CreateCourseChapterSchema = z.object({
   title_ar: z.string().trim().min(2).max(160).optional(),
   learning_objectives: LearningObjectivesSchema,
 });
+const CourseExerciseSchema = z.object({
+  prompt: z.string().trim().min(4).max(1000),
+  solution: z.string().max(2000).default(''),
+  example_code: z.string().max(4000).default(''),
+});
+const CourseAssessmentSchema = z
+  .object({
+    question: z.string().trim().min(4).max(600),
+    options: z.array(z.string().trim().min(1).max(240)).min(2).max(6),
+    correct_option_index: z.number().int().min(0).max(5),
+    explanation: z.string().max(1000).default(''),
+  })
+  .refine((item) => item.correct_option_index < item.options.length);
+const SourceMaterialIdsSchema = z
+  .array(z.string().min(1).max(100))
+  .max(20)
+  .refine((ids) => new Set(ids).size === ids.length);
 const UpdateCourseChapterSchema = z
   .object({
     title: z.string().trim().min(2).max(160).optional(),
@@ -157,6 +174,9 @@ const CreateCourseLessonSchema = z.object({
   title: z.string().trim().min(2).max(160),
   title_ar: z.string().trim().min(2).max(160).optional(),
   learning_objectives: LearningObjectivesSchema,
+  exercises: z.array(CourseExerciseSchema).max(20).default([]),
+  assessment: z.array(CourseAssessmentSchema).max(20).default([]),
+  source_material_ids: SourceMaterialIdsSchema.default([]),
   estimated_duration_sec: z.number().int().min(8).max(1800).default(300),
   project_id: z.string().min(1).nullable().optional(),
 });
@@ -165,6 +185,9 @@ const UpdateCourseLessonSchema = z
     title: z.string().trim().min(2).max(160).optional(),
     title_ar: z.string().trim().min(2).max(160).optional(),
     learning_objectives: z.array(z.string().trim().min(2).max(240)).max(12).optional(),
+    exercises: z.array(CourseExerciseSchema).max(20).optional(),
+    assessment: z.array(CourseAssessmentSchema).max(20).optional(),
+    source_material_ids: SourceMaterialIdsSchema.optional(),
     estimated_duration_sec: z.number().int().min(8).max(1800).optional(),
     project_id: z.string().min(1).nullable().optional(),
   })
@@ -375,6 +398,34 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
       : { ok: false, status: 404, error: 'Course lesson not found' };
   }
 
+  function verifyCourseLessonSources(
+    materialIds: string[],
+    projectId: string | null,
+    user: AuthenticatedUser,
+  ): { ok: true } | { ok: false; status: number; error: string } {
+    if (materialIds.length === 0) return { ok: true };
+    if (!projectId) {
+      return { ok: false, status: 400, error: 'Source documents require a linked video project.' };
+    }
+    const projectOwnership = verifyProjectOwnership(projectId, user);
+    if (!projectOwnership.ok) return projectOwnership;
+    const placeholders = materialIds.map(() => '?').join(', ');
+    const rows = db
+      .prepare(
+        `SELECT id FROM educational_materials
+         WHERE project_id = ? AND id IN (${placeholders})`,
+      )
+      .all(projectId, ...materialIds) as Array<{ id: string }>;
+    if (rows.length !== materialIds.length) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Every source document must belong to the linked video project.',
+      };
+    }
+    return { ok: true };
+  }
+
   function getCourseDetail(courseId: string): CourseRecord | null {
     const row = db.prepare('SELECT * FROM courses WHERE id = ?').get(courseId) as
       | Record<string, unknown>
@@ -404,6 +455,16 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
             title: String(lesson.title),
             title_ar: String(lesson.title_ar),
             learning_objectives: JSON.parse(String(lesson.learning_objectives_json || '[]')) as string[],
+            exercises: JSON.parse(String(lesson.exercises_json || '[]')) as CourseLesson['exercises'],
+            assessment: JSON.parse(String(lesson.assessment_json || '[]')) as CourseLesson['assessment'],
+            source_materials: db
+              .prepare(
+                `SELECT m.id, m.filename, m.source_checksum
+                 FROM course_lesson_sources ls
+                 JOIN educational_materials m ON m.id = ls.material_id
+                 WHERE ls.lesson_id = ? ORDER BY m.filename ASC`,
+              )
+              .all(String(lesson.id)) as CourseLesson['source_materials'],
             estimated_duration_sec: Number(lesson.estimated_duration_sec),
             created_at: String(lesson.created_at),
             updated_at: String(lesson.updated_at),
@@ -940,24 +1001,46 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
         return;
       }
     }
+    const sourceOwnership = verifyCourseLessonSources(
+      data.source_material_ids,
+      data.project_id ?? null,
+      req.user!,
+    );
+    if (!sourceOwnership.ok) {
+      res.status(sourceOwnership.status).json({ error: sourceOwnership.error });
+      return;
+    }
     const orderRow = db
       .prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM course_lessons WHERE chapter_id = ?')
       .get(req.params.chapterId) as { next_order: number };
     const lessonId = `lesson-${crypto.randomUUID().slice(0, 10)}`;
-    db.prepare(
-      `INSERT INTO course_lessons
-        (id, chapter_id, sort_order, project_id, title, title_ar, learning_objectives_json, estimated_duration_sec)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      lessonId,
-      req.params.chapterId,
-      orderRow.next_order,
-      data.project_id ?? null,
-      data.title,
-      data.title_ar ?? data.title,
-      JSON.stringify(data.learning_objectives),
-      data.estimated_duration_sec,
-    );
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(
+        `INSERT INTO course_lessons
+          (id, chapter_id, sort_order, project_id, title, title_ar, learning_objectives_json, exercises_json, assessment_json, estimated_duration_sec)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        lessonId,
+        req.params.chapterId,
+        orderRow.next_order,
+        data.project_id ?? null,
+        data.title,
+        data.title_ar ?? data.title,
+        JSON.stringify(data.learning_objectives),
+        JSON.stringify(data.exercises),
+        JSON.stringify(data.assessment),
+        data.estimated_duration_sec,
+      );
+      const addSource = db.prepare(
+        'INSERT INTO course_lesson_sources (lesson_id, material_id) VALUES (?, ?)',
+      );
+      for (const materialId of data.source_material_ids) addSource.run(lessonId, materialId);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
     res.status(201).json({ course: getCourseDetail(req.params.id), lesson_id: lessonId });
   });
 
@@ -972,22 +1055,58 @@ export function createStudioApp(customDbPath?: string): StudioAppContext {
       res.status(ownership.status).json({ error: ownership.error });
       return;
     }
-    if (parsed.data.project_id) {
-      const projectOwnership = verifyProjectOwnership(parsed.data.project_id, req.user!);
+    const currentProjectId = ownership.row.project_id ? String(ownership.row.project_id) : null;
+    const projectId =
+      parsed.data.project_id !== undefined ? parsed.data.project_id : currentProjectId;
+    if (projectId) {
+      const projectOwnership = verifyProjectOwnership(projectId, req.user!);
       if (!projectOwnership.ok) {
         res.status(projectOwnership.status).json({ error: projectOwnership.error });
+        return;
+      }
+    }
+    const replaceSources =
+      parsed.data.source_material_ids !== undefined || projectId !== currentProjectId;
+    const sourceMaterialIds = parsed.data.source_material_ids ?? [];
+    if (replaceSources) {
+      const sourceOwnership = verifyCourseLessonSources(sourceMaterialIds, projectId, req.user!);
+      if (!sourceOwnership.ok) {
+        res.status(sourceOwnership.status).json({ error: sourceOwnership.error });
         return;
       }
     }
     const fields: string[] = [];
     const values: unknown[] = [];
     for (const [key, value] of Object.entries(parsed.data)) {
-      fields.push(`${key === 'learning_objectives' ? 'learning_objectives_json' : key} = ?`);
-      values.push(key === 'learning_objectives' ? JSON.stringify(value) : value);
+      if (key === 'source_material_ids') continue;
+      const column =
+        key === 'learning_objectives'
+          ? 'learning_objectives_json'
+          : key === 'exercises'
+            ? 'exercises_json'
+            : key === 'assessment'
+              ? 'assessment_json'
+              : key;
+      fields.push(`${column} = ?`);
+      values.push(['learning_objectives', 'exercises', 'assessment'].includes(key) ? JSON.stringify(value) : value);
     }
     fields.push(`updated_at = datetime('now')`);
     values.push(req.params.lessonId);
-    db.prepare(`UPDATE course_lessons SET ${fields.join(', ')} WHERE id = ?`).run(...(values as never[]));
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(`UPDATE course_lessons SET ${fields.join(', ')} WHERE id = ?`).run(...(values as never[]));
+      if (replaceSources) {
+        db.prepare('DELETE FROM course_lesson_sources WHERE lesson_id = ?').run(req.params.lessonId);
+        const addSource = db.prepare(
+          'INSERT INTO course_lesson_sources (lesson_id, material_id) VALUES (?, ?)',
+        );
+        for (const materialId of sourceMaterialIds) addSource.run(req.params.lessonId, materialId);
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
     res.json({ course: getCourseDetail(req.params.id) });
   });
 

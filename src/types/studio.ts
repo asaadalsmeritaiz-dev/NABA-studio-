@@ -239,6 +239,14 @@ export interface CourseLesson {
   title: string;
   title_ar: string;
   learning_objectives: string[];
+  exercises: Array<{ prompt: string; solution: string; example_code: string }>;
+  assessment: Array<{
+    question: string;
+    options: string[];
+    correct_option_index: number;
+    explanation: string;
+  }>;
+  source_materials: Array<{ id: string; filename: string; source_checksum: string }>;
   estimated_duration_sec: number;
   created_at: string;
   updated_at: string;
